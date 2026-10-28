@@ -24,20 +24,51 @@ model User {
 
   sentMessages     Message[]  @relation("SentMessages")
   receivedMessages Message[]  @relation("ReceivedMessages")
+
+  authSessions AuthSession[]
 }
 
 model Message {
-  id         String   @id @default(uuid())
-  content    String
+  id          String  @id @default(uuid())
+  content     String
 
-  senderId   String
+  senderId    String
   recipientId String
 
-  sender     User @relation("SentMessages", fields: [senderId], references: [id])
-  recipient  User @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
+  recipient  User     @relation("ReceivedMessages", fields: [recipientId], references: [id])
 
   createdAt  DateTime @default(now())
   
   @@index([senderId, recipientId, createdAt])
   @@index([recipientId, senderId, createdAt])
+}
+
+model AuthSession {
+  id            String   @id @default(uuid())
+  userId        String
+  createdAt     DateTime @default(now())
+  lastUsedAt    DateTime?
+  expiresAt     DateTime
+  revokedAt     DateTime?
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique
+  sessionId String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+  revokedAt DateTime?
+
+  session AuthSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([expiresAt])
 }

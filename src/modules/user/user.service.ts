@@ -64,4 +64,31 @@ export class UserService {
 
         return user;
     }
+
+    async findAuthUserByUsername(username: string) {
+        return this.prisma.user.findUnique({
+            where: { username },
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                phoneNumber: true,
+                passwordHash: true,
+                createdAt: true
+            }
+        });
+    }
+
+    async findAuthUserById(id: string) {
+        return this.prisma.user.findUnique({
+            where: { id },
+            select: {
+                id: true,
+                name: true,
+                username: true,
+                phoneNumber: true,
+                createdAt: true
+            }
+        });
+    }
 }
