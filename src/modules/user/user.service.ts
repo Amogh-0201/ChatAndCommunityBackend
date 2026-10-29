@@ -49,13 +49,14 @@ export class UserService {
         });
     }
 
-    async findOne(id: string) {
+    async findProfileById(id: string) {
         const user = await this.prisma.user.findUnique({
             where: {id},
             select: {
                 id: true,
                 name: true,
                 username: true,
+                phoneNumber: true,
                 createdAt: true,
             }
         });

@@ -6,6 +6,7 @@ import { PrismaService } from "../../lib/database/prisma.service";
 import { CreateUserDto } from "../user/dto/create-user.dto";
 import { createHash, randomBytes, randomUUID } from "crypto";
 import { LoginDto } from "./dto/login.dto";
+import { SocketSessionRegistry } from './socket-session-registry.service';
 
 const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const REFRESH_IDLE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -25,7 +26,8 @@ export class AuthService {
     constructor(
         private readonly userService: UserService,
         private readonly jwtService: JwtService,
-        private readonly prisma: PrismaService
+        private readonly prisma: PrismaService,
+        private readonly socketSessionRegistry: SocketSessionRegistry
     ){}
 
     async register(dto: CreateUserDto) {
@@ -177,9 +179,8 @@ export class AuthService {
         });
 
         if (rotationResult !== 'rotated') {
-            if (rotationResult === 'session-invalid') {
-                await this.revokeSession(existing.sessionId, now);
-            }
+            await this.revokeSession(existing.sessionId, now);
+            
             throw new UnauthorizedException('Invalid refresh token');
         }
 
@@ -214,7 +215,7 @@ export class AuthService {
 
         const now = new Date();
 
-        await this.prisma.$transaction(async(tx) => {
+        const sessionIds = await this.prisma.$transaction(async(tx) => {
             const sessions = await tx.authSession.findMany({
                 where: {
                     userId,
@@ -223,13 +224,13 @@ export class AuthService {
                 select: { id: true }
             });
             
-            if(sessions.length === 0) return;
+            if(sessions.length === 0) return [];
 
-            const sessionIds = sessions.map((session) => session.id);
+            const ids = sessions.map((session) => session.id);
 
             await tx.authSession.updateMany({
                 where: {
-                    id: { in: sessionIds },
+                    id: { in: ids },
                     userId,
                     revokedAt: null
                 },
@@ -239,14 +240,18 @@ export class AuthService {
             });
             await tx.refreshToken.updateMany({
                 where: {
-                    sessionId: { in: sessionIds },
+                    sessionId: { in: ids },
                     revokedAt: null
                 },  
                 data: {
                     revokedAt: now
                 }
             });
+
+            return ids;
         });
+
+        this.socketSessionRegistry.disconnectSessions(sessionIds);
 
         return { success: true };
     }
@@ -334,5 +339,7 @@ export class AuthService {
                 }
             });
         });
+
+        this.socketSessionRegistry.disconnectSession(sessionId);
     }
 }

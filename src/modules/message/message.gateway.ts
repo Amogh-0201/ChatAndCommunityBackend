@@ -1,9 +1,22 @@
-import { HttpException, Logger, UsePipes, ValidationPipe } from '@nestjs/common';
-import {ConnectedSocket, MessageBody, SubscribeMessage, WebSocketGateway, WebSocketServer, WsException} from '@nestjs/websockets'
+import { HttpException, Logger, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import {ConnectedSocket, MessageBody, OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer, WsException} from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io';
 import { MessageService } from './message.service';
 import { JoinUserDto } from './dto/join-user.dto';
 import { SendWsMessageDto } from './dto/send-ws-message.dto';
+import { WsSessionGuard } from './guards/ws-session.guard';
+import { JwtService } from '@nestjs/jwt';
+import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../lib/database/prisma.service';
+import { SocketSessionRegistry } from '../auth/socket-session-registry.service';
+import { SocketAuthUser } from '../auth/types/socket-auth-user';
+
+
+type AccessTokenPayload = {
+    sub: string;
+    sid: string;
+    exp: number;
+};
 
 
 @WebSocketGateway({
@@ -11,6 +24,7 @@ import { SendWsMessageDto } from './dto/send-ws-message.dto';
         origin: '*',  // local development only
     },
 })
+@UseGuards(WsSessionGuard)
 @UsePipes(
     new ValidationPipe({
         whitelist: true,
@@ -23,35 +37,126 @@ import { SendWsMessageDto } from './dto/send-ws-message.dto';
             ),
     }),
 )
-export class MessageGateway {
+export class MessageGateway implements OnGatewayInit {
 
     private readonly logger = new Logger(MessageGateway.name);
 
     @WebSocketServer()
-    server: Server
+    server: Server;
 
-    constructor(private readonly messageService: MessageService) {}
+    constructor(
+        private readonly messageService: MessageService,
+        private readonly jwtService: JwtService,
+        private readonly configService: ConfigService,
+        private readonly prisma: PrismaService,
+        private readonly socketSessionRegistry: SocketSessionRegistry
+    ) {}
 
-    // associate the socket with a test user
-    @SubscribeMessage('user:join')
-    async handleJoin(
-        @ConnectedSocket() client: Socket,
-        @MessageBody() data: JoinUserDto
-    ) {
-        const previousUserId = client.data.userId as string | undefined;
-        
-        if(previousUserId) {
-            await client.leave(`user:${previousUserId}`);
+    afterInit(server: Server) {
+        // Runs before a new Socket.IO connection is accepted.
+        server.use((client, next) => {
+            void this.authenticateSocket(client, next);
+        });
+    }
+
+    private async authenticateSocket(client: Socket, next: (err?: Error) => void) {
+
+        const token: unknown = client.handshake.auth?.token;
+        if (typeof token !== 'string' || token.length === 0) {
+            return next(new Error('Unauthorized'));
         }
 
-        await client.join(`user:${data.userId}`);
+        try {
+            const payload = await this.jwtService.verifyAsync<AccessTokenPayload>(
+                token,
+                {
+                    issuer: this.configService.getOrThrow<string>('JWT_ISSUER'),
+                    audience: this.configService.getOrThrow<string>('JWT_AUDIENCE'),
+                    algorithms: ['HS256']
+                }
+            );
 
-        client.data.userId = data.userId;
+            if(
+                typeof payload.sub !== 'string' ||
+                typeof payload.sid !== 'string' ||
+                typeof payload.exp !== 'number'
+            ) {
+                return next(new Error("Unauthorized"));
+            }
 
-        return {
-            ok: true,
-            userId: data.userId
-        };
+            const session = await this.prisma.authSession.findFirst({
+                where: {
+                    id: payload.sid,
+                    userId: payload.sub,
+                    revokedAt: null,
+                    expiresAt: { gt: new Date() }
+                },
+                select: { id: true }
+            });
+
+            if(!session) {
+                return next(new Error("Unauthorized"));
+            }
+
+            const authUser: SocketAuthUser = {
+                id: payload.sub,
+                sessionId: payload.sid,
+                expiresAt: payload.exp * 1000
+            }
+
+            client.data.authUser = authUser;
+
+            return next();
+        } catch {
+            // Do not expose JWT verification or database details.
+            return next(new Error('Unauthorized'));
+        }
+    }
+
+    async handleConnection(client: Socket) {
+
+        const authUser = client.data.authUser as SocketAuthUser | undefined;
+
+        // The handshake middleware should already have authenticated it.
+        if(!authUser) {
+            client.disconnect(true);
+            return;
+        }
+
+        // Only the server chooses which user room this socket joins.
+        await client.join(`user:${authUser.id}`);
+
+        this.socketSessionRegistry.register(authUser.sessionId, client);
+
+        // Disconnect the socket when its access token expires.
+        const remainingMs = authUser.expiresAt - Date.now();
+
+        if(remainingMs <= 0) {
+            client.disconnect(true);
+            return;
+        }
+
+        const expiryTimer = setTimeout(
+            () => client.disconnect(true),
+            remainingMs
+        );
+
+        expiryTimer.unref?.();
+        client.data.authExpiryTimer = expiryTimer;
+    }
+
+    handleDisconnect(client: Socket) {
+
+        const authUser = client.data.authUser as SocketAuthUser | undefined;
+        const expiryTimer = client.data.authExpiryTimer as ReturnType<typeof setTimeout> | undefined;
+
+        if(expiryTimer) {
+            clearTimeout(expiryTimer);
+        }
+
+        if(authUser) {
+            this.socketSessionRegistry.unregister(authUser.sessionId, client);
+        }
     }
 
     // save and deliver a message
@@ -60,40 +165,38 @@ export class MessageGateway {
         @ConnectedSocket() client: Socket,
         @MessageBody() data: SendWsMessageDto
     ) {
-        const senderId = client.data.userId as string | undefined;
-        if(!senderId) {
-            return {
-                ok: false,
-                error: 'join a user room first'
-            };
-        }
+        const authUser = client.data.authUser as SocketAuthUser;
 
         try {
-            // Reuse existing REST business logic
+            // Never accept senderId from the client.
             const message = await this.messageService.create({
-                senderId,
+                senderId: authUser.id,
                 recipientId: data.recipientId,
                 content: data.content
             });
 
-            // Broadcast only after successful persistence
+            // Deliver to all connected devices belonging to the recipient.
             this.server
-                .to(`user:${senderId}`)
                 .to(`user:${data.recipientId}`)
                 .emit('message:new', message);
-
-            // Acknowledgement for sender
+            
+            // Deliver to the sender's OTHER devices, excluding this socket.
+            client
+                .to(`user:${authUser.id}`)
+                .emit('message:new', message);
+            
+            // The current sender receives this response via its ack callback.
             return {
                 ok: true,
                 message
             };
 
         } catch(error) {
-            
-            if(error instanceof HttpException) {
+            console.error('[WS] message:send failed:', error);
+            if (error instanceof HttpException) {
                 return {
                     ok: false,
-                    error: error.message
+                    error: error.message,
                 };
             }
 
@@ -104,7 +207,7 @@ export class MessageGateway {
 
             return {
                 ok: false,
-                error: 'unable to send message'
+                error: 'Unable to send message',
             };
         }
     }

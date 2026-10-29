@@ -9,6 +9,7 @@ import { UserModule } from "../user/user.module";
 import { PassportModule } from "@nestjs/passport";
 import { JwtModule } from "@nestjs/jwt";
 import { ConfigService } from "@nestjs/config";
+import { SocketSessionRegistry } from "./socket-session-registry.service";
 
 @Module({
     imports: [
@@ -37,11 +38,12 @@ import { ConfigService } from "@nestjs/config";
         AuthService,
         JwtStrategy,
         JwtAuthGuard,
+        SocketSessionRegistry,
         {
             provide: APP_GUARD,
             useExisting: JwtAuthGuard
         }
     ],
-    exports: [JwtAuthGuard]
+    exports: [JwtAuthGuard, JwtModule, SocketSessionRegistry]
 })
 export class AuthModule {}

@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/database/prisma.service';
-import { CreateMessageDto } from './dto/create-message.dto';
+import { CreateMessageInput } from './types/create-message-input';
 import { Prisma } from '../../generated/prisma/client';
 
 @Injectable()
@@ -8,7 +8,7 @@ export class MessageService {
     
     constructor(private readonly prisma: PrismaService) {}
 
-    async create(dto: CreateMessageDto) {
+    async create(dto: CreateMessageInput) {
         
         if (dto.senderId === dto.recipientId) {
             throw new BadRequestException(
@@ -39,17 +39,17 @@ export class MessageService {
         }
     }
 
-    async getConversation(userA: string, userB: string) {
+    async getConversation(currentUserId: string, otherUserId: string) {
         
-        if(userA === userB) {
+        if(currentUserId === otherUserId) {
             throw new BadRequestException("Conversation requires two different users");
         }
 
         const messages = await this.prisma.message.findMany({
             where: {
                 OR: [
-                    {senderId: userA, recipientId: userB},
-                    {senderId: userB, recipientId: userA}
+                    {senderId: currentUserId, recipientId: otherUserId},
+                    {senderId: otherUserId, recipientId: currentUserId}
                 ]
             },
             orderBy: [

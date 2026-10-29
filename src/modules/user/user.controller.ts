@@ -1,5 +1,14 @@
-import { Controller, Get, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Req } from '@nestjs/common';
 import { UserService } from './user.service';
+import type { Request } from 'express'
+
+type AuthenticatedRequeset = Request & {
+  user: {
+    id: string;
+    username: string;
+    sessionId: string;
+  };
+};
 
 @Controller('user')
 export class UserController {
@@ -11,8 +20,8 @@ export class UserController {
     return this.userService.findAll();
   }
 
-  @Get(":id")
-  findOne(@Param('id', ParseUUIDPipe) id: string) {
-    return this.userService.findOne(id);
+  @Get("me")
+  findOne(@Req() req: AuthenticatedRequeset) {
+    return this.userService.findProfileById(req.user.id);
   }
 }

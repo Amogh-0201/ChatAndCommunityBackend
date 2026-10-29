@@ -1,22 +1,25 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Controller, Get, Req, Param, ParseUUIDPipe } from '@nestjs/common';
 import { MessageService } from './message.service';
-import { CreateMessageDto } from './dto/create-message.dto';
+import type { Request } from 'express';
+
+type AuthenticatedRequest = Request & {
+  user: {
+    id: string;
+    username: string;
+    sessionId: string;
+  };
+};
 
 @Controller('messages')
 export class MessageController {
   
   constructor(private readonly messageService: MessageService) {}
 
-  @Post()
-  create(@Body() dto: CreateMessageDto) {
-    return this.messageService.create(dto);
-  }
-
-  @Get('/between/:userA/:userB')
+  @Get('between/:otherUserId')
   getConversation(
-    @Param('userA', ParseUUIDPipe) userA: string,
-    @Param('userB', ParseUUIDPipe) userB: string
+    @Req() req: AuthenticatedRequest,
+    @Param('otherUserId', ParseUUIDPipe) otherUserId: string
   ) {
-    return this.messageService.getConversation(userA, userB);
+    return this.messageService.getConversation(req.user.id, otherUserId);
   }
 }
