@@ -56,8 +56,8 @@ Tools will be added when their responsibilities are needed—not simply to incre
 - [x] Build basic message REST APIs (`POST /messages`, `GET /messages/between/:userA/:userB`).
 - [x] Add a Socket.IO gateway for real-time, one-to-one messaging.
 - [x] Test two connected clients, message acknowledgements, delivery events, and database persistence.
-- [ ] Secure users and messaging with authentication and authorization. **← NEXT**
-- [ ] Introduce first-class conversations and group chats.
+- [x] Secure users and messaging with authentication and authorization.
+- [ ] Introduce first-class conversations and group chats. **← NEXT**
 - [ ] Complete and validate the V1 end-to-end feature set.
 
 ### Current architecture (V1, before authentication)
@@ -131,22 +131,22 @@ Tools will be added when their responsibilities are needed—not simply to incre
 
 **Milestone:** Client A sends a message; Client B receives it immediately; the message remains stored in PostgreSQL.
 
-## Phase 1.4 — Authentication and authorization **← NEXT**
+## Phase 1.4 — Authentication and authorization
 
-- [ ] Decide and implement the final user-registration fields and unique identifiers.
-- [ ] Implement password hashing and safe credential storage.
-- [ ] Implement `POST /auth/register` and `POST /auth/login`.
-- [ ] Issue and validate JWT access tokens.
-- [ ] Add NestJS guards to protected REST endpoints.
-- [ ] Resolve the current user from the verified JWT rather than trusting a client-supplied sender ID.
-- [ ] Authenticate Socket.IO connections and reject unauthorized clients.
-- [ ] Replace the insecure `user:join` identity mechanism with authenticated user-room assignment.
-- [ ] Verify users cannot send as someone else or access other users' private history.
-- [ ] Restrict or remove development-only user creation/listing endpoints as appropriate.
+- [x] Decide and implement the final user-registration fields and unique identifiers.
+- [x] Implement password hashing and safe credential storage.
+- [x] Implement `POST /auth/register` and `POST /auth/login`.
+- [x] Issue and validate JWT access tokens.
+- [x] Add NestJS guards to protected REST endpoints.
+- [x] Resolve the current user from the verified JWT rather than trusting a client-supplied sender ID.
+- [x] Authenticate Socket.IO connections and reject unauthorized clients.
+- [x] Replace the insecure `user:join` identity mechanism with authenticated user-room assignment.
+- [x] Verify users cannot send as someone else or access other users' private history.
+- [x] Restrict or remove development-only user creation/listing endpoints as appropriate.
 
 **Milestone:** REST and Socket.IO operations use the same verified user identity; identity spoofing and unauthorized history access are rejected.
 
-## Phase 1.5 — Conversation model and group chats
+## Phase 1.5 — Conversation model and group chats **← NEXT**
 
 - [ ] Introduce a `Conversation` model with a type such as `DIRECT` or `GROUP`.
 - [ ] Introduce conversation membership (e.g., `ConversationMember`) and ownership/admin rules where needed.
