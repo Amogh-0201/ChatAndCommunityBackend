@@ -52,37 +52,106 @@ Tools will be added when their responsibilities are needed—not simply to incre
 
 - [x] Initialize NestJS + TypeScript application.
 - [x] Configure PostgreSQL and Prisma.
-- [x] Build basic user REST APIs (`POST /users`, `GET /users`, `GET /users/:id`).
-- [x] Build basic message REST APIs (`POST /messages`, `GET /messages/between/:userA/:userB`).
+- [x] Build user REST APIs for listing users and viewing the authenticated profile.
+- [x] Build direct-message history retrieval and real-time message sending.
 - [x] Add a Socket.IO gateway for real-time, one-to-one messaging.
 - [x] Test two connected clients, message acknowledgements, delivery events, and database persistence.
 - [x] Secure users and messaging with authentication and authorization.
 - [ ] Introduce first-class conversations and group chats. **← NEXT**
 - [ ] Complete and validate the V1 end-to-end feature set.
 
-### Current architecture (V1, before authentication)
+### Current architecture
 
 ```text
-                  Chat client / test client
-                      |             |
-                 HTTP REST      Socket.IO
-                      |             |
-            +---------v-------------v----------+
-            |          NestJS application      |
-            |                                  |
-            |  UserController                  |
-            |  MessageController               |
-            |  MessageGateway                  |
-            |           |                      |
-            |   UserService / MessageService   |
-            |           |                      |
-            |          Prisma                  |
-            +-------------|--------------------+
-                          |
-                     PostgreSQL
+                   Authenticated client
+                    |             |
+                HTTP REST      Socket.IO
+                    |             |
+          +---------v-------------v----------+
+          |       NestJS application          |
+          | Auth / User / Conversation /      |
+          | Message controllers and services |
+          |      MessageGateway              |
+          |              |                   |
+          |          Prisma                  |
+          +--------------|-------------------+
+                         |
+                    PostgreSQL
 ```
 
-**Important development-only limitation:** The current `user:join` Socket.IO event accepts a client-supplied user ID. This is useful for testing, **but it is not authentication**. It must be replaced with server-verified identity before deploying or exposing the messaging system to untrusted users.
+REST routes (except `GET /` and the explicitly public authentication routes) require a bearer access token. Socket.IO connections authenticate with an access token during the handshake; the server assigns the socket to the authenticated user's room.
+
+### Current project structure
+
+```text
+prisma/
+  schema.prisma
+  migrations/
+scripts/
+  test-chat.mjs
+src/
+  app.module.ts
+  main.ts
+  generated/prisma/              # Generated Prisma client
+  lib/database/                  # Prisma module and service
+  modules/
+    auth/                         # Registration, login, JWT and sessions
+    conversation/                 # Groups, membership and join requests
+    message/                      # Direct-message history and Socket.IO
+    user/                         # User listing and profile
+test/                             # End-to-end tests
+```
+
+### Implemented API reference
+
+All routes below are implemented by the current application. Unless marked **Public**, send `Authorization: Bearer <accessToken>`. Requests with DTOs are validated; unknown fields are rejected.
+
+#### REST endpoints
+
+| Method | Route | Access | What it does |
+| --- | --- | --- | --- |
+| `GET` | `/` | Public | Returns the application's greeting. |
+| `POST` | `/auth/register` | Public | Registers a user and returns an access/refresh token pair. Body: `{ "name": "...", "username": "...", "phoneNumber": "+...", "password": "..." }`. |
+| `POST` | `/auth/login` | Public | Authenticates with username and password and returns a token pair. Body: `{ "username": "...", "password": "..." }`. |
+| `POST` | `/auth/refresh` | Public | Rotates the refresh token and returns a new token pair. Body: `{ "refreshToken": "..." }`. |
+| `POST` | `/auth/logout` | Public | Revokes the session identified by the supplied refresh token. Body: `{ "refreshToken": "..." }`. |
+| `POST` | `/auth/logout-all` | Authenticated | Revokes all of the current user's sessions and disconnects their sockets. |
+| `GET` | `/user` | Authenticated | Lists up to 50 users (id, name and username), newest first. |
+| `GET` | `/user/me` | Authenticated | Returns the current user's profile, including phone number. |
+| `GET` | `/messages/between/:otherUserId` | Authenticated | Returns up to the latest 50 messages in the current user's direct conversation with the specified UUID; results are oldest-first. Returns an empty array if no conversation exists. |
+| `POST` | `/conversations/groups` | Authenticated | Creates a group with the current user as owner. Body: `{ "name": "...", "joinPolicy": "OPEN" }`; `joinPolicy` is optional and defaults to `REQUEST`. |
+| `GET` | `/conversations` | Authenticated | Lists conversations the current user belongs to, newest-updated first, including members and the latest message. |
+| `GET` | `/conversations/:id` | Authenticated | Returns conversation details. Direct conversations require membership; authenticated users can view group details before joining. |
+| `PATCH` | `/conversations/:id` | Authenticated, group owner | Updates a group's `name` and/or `joinPolicy` (`OPEN` or `REQUEST`). |
+| `POST` | `/conversations/:id/join` | Authenticated | Joins an `OPEN` group immediately or creates/reopens a pending request for a `REQUEST` group. |
+| `DELETE` | `/conversations/:id/leave` | Authenticated member | Leaves a group. The owner cannot leave. |
+| `GET` | `/conversations/:id/join-requests` | Authenticated, group owner | Lists pending join requests for the group. |
+| `PATCH` | `/conversations/:id/join-requests/:requestId` | Authenticated, group owner | Approves or rejects a pending request. Body: `{ "action": "APPROVE" }` or `{ "action": "REJECT" }`. |
+| `DELETE` | `/conversations/:id/join-requests/me` | Authenticated | Cancels the current user's pending request for the group. |
+
+`POST /auth/register` and `POST /auth/login` return `accessToken`, `refreshToken`, `tokenType`, `expiresIn` (seconds), expiry timestamps, and the user profile. The access token is short-lived; use `/auth/refresh` to rotate the refresh token. The `:id`, `:requestId`, and `:otherUserId` path parameters are UUIDs.
+
+Direct conversations are created automatically when the first direct message is sent. There is no REST `POST /messages` endpoint; direct messages are sent over Socket.IO as described below.
+
+#### Socket.IO events
+
+Connect to the Socket.IO server at the application origin and pass the access token in the handshake auth object:
+
+```js
+const socket = io(API_BASE_URL, {
+  auth: { token: accessToken },
+});
+```
+
+The server validates the token and its active session, then joins the socket to a server-selected user room. There is no client `user:join` event.
+The implemented gateway supports direct messages; it does not yet send messages to group-conversation rooms.
+
+| Direction | Event | Payload / acknowledgement | What it does |
+| --- | --- | --- | --- |
+| Client → server | `message:send` | `{ "recipientId": "<user UUID>", "content": "..." }`; acknowledge with `{ "ok": true, "message": { ... } }` or `{ "ok": false, "error": "..." }` | Persists a direct message and sends it to the recipient's connected devices and the sender's other connected devices. The sender ID is derived from the authenticated socket, not supplied by the client. |
+| Server → client | `message:new` | Message object with `id`, `senderId`, `conversationId`, `content`, `createdAt`, and `recipientId` | Announces a persisted direct message to recipient sockets and the sender's other sockets. The sending socket receives the message in its `message:send` acknowledgement instead. |
+
+The standard Socket.IO `connect`, `connect_error`, and `disconnect` lifecycle events also apply. Connections are rejected without a valid active-session access token and disconnected when that token expires.
 
 ---
 
@@ -106,15 +175,7 @@ Tools will be added when their responsibilities are needed—not simply to incre
 - [x] Persist a direct message between two users.
 - [x] Retrieve the message history between two users.
 
-**Existing endpoints** (these may evolve as the conversation model is introduced):
-
-| Method | Route | Purpose |
-| --- | --- | --- |
-| `POST` | `/users` | Create a test user |
-| `GET` | `/users` | List users for development |
-| `GET` | `/users/:id` | Get user details |
-| `POST` | `/messages` | Persist a message |
-| `GET` | `/messages/between/:userA/:userB` | Fetch direct-message history |
+The currently implemented routes are documented in the [Implemented API reference](#implemented-api-reference) above. The initial `/users` and `/messages` endpoints described in early development notes are not current routes.
 
 **Milestone:** Messages can be created and fetched through REST, without WebSockets.
 
@@ -122,7 +183,7 @@ Tools will be added when their responsibilities are needed—not simply to incre
 
 - [x] Install and configure NestJS Socket.IO support.
 - [x] Create a `MessageGateway`.
-- [x] Support `user:join`, `message:send`, and `message:new` events.
+- [x] Authenticate Socket.IO connections and support `message:send` and `message:new` events.
 - [x] Use Socket.IO rooms to target sender/recipient connections.
 - [x] Reuse `MessageService` for persistence rather than duplicating database logic.
 - [x] Return sender acknowledgements after successful message persistence.

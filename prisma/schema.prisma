@@ -22,6 +22,19 @@ enum ConversationRole {
   MEMBER
 }
 
+enum GroupJoinPolicy {
+  OPEN
+  REQUEST
+  INVITE_ONLY
+}
+
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -33,13 +46,17 @@ model User {
   updatedAt    DateTime @updatedAt
 
   // Messages Sent by this user
-  sentMessages     Message[]  @relation("SentMessages")
+  sentMessages            Message[]  @relation("SentMessages")
   
   // Conversations created by this user
-  createdConversations Conversation[] @relation("CreatedConversations")
+  createdConversations    Conversation[] @relation("CreatedConversations")
 
   // Conversations this user belongs to
   conversationMemberships ConversationMember[]
+
+  // Group join requests
+  sentJoinRequets         ConversationJoinRequest[] @relation("JoinRequester")
+  reviewedJoinRequests    ConversationJoinRequest[] @relation("JoinRequestReviewer")
 
   authSessions AuthSession[]
 }
@@ -50,18 +67,25 @@ model Conversation {
   name        String?
   directKey   String?  @unique
 
+  // OPEN is the default. Direct conversations explicitly use OPEN too.
+  // Group behaviour depends on this policy.
+  joinPolicy GroupJoinPolicy @default(OPEN)
+
   createdById String
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
   // The user who created this conversation
-  createdBy   User     @relation("CreatedConversations", fields: [createdById], references: [id], onDelete: Restrict)
+  createdBy    User     @relation("CreatedConversations", fields: [createdById], references: [id], onDelete: Restrict)
 
   // Users participating in this conversation
-  members     ConversationMember[]
+  members      ConversationMember[]
 
   // Messages belonging to this conversation
-  messages    Message[]
+  messages     Message[]
+
+  // Join requests for this conversation
+  joinRequests ConversationJoinRequest[]
 
   @@index([type, updatedAt])
 }
@@ -80,6 +104,29 @@ model ConversationMember {
   @@id([conversationId, userId])
 
   @@index([userId, joinedAt])
+}
+
+model ConversationJoinRequest {
+  id             String   @id @default(uuid())
+  conversationId String
+  requesterId    String
+
+  status JoinRequestStatus @default(PENDING)
+
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  reviewedAt   DateTime?
+  reviewedById String?
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  requester    User         @relation("JoinRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  reviewer     User?        @relation("JoinRequestReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  // One request record per user per conversation.
+  // Rejected/cancelled requests can be reopened by resetting status to PENDING.
+  @@unique([conversationId, requesterId])
+  @@index([conversationId, status, createdAt])
+  @@index([requesterId, status, createdAt])
 }
 
 model Message {

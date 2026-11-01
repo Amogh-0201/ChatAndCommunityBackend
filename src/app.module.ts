@@ -5,6 +5,7 @@ import { UserModule } from './modules/user/user.module';
 import { MessageModule } from './modules/message/message.module';
 import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './modules/auth/auth.module';
+import { ConversationModule } from './modules/conversation/conversation.module';
 
 @Module({
   imports: [
@@ -13,7 +14,8 @@ import { AuthModule } from './modules/auth/auth.module';
     }),
     UserModule, 
     MessageModule,
-    AuthModule
+    AuthModule,
+    ConversationModule
   ],
   controllers: [AppController],
   providers: [AppService],
