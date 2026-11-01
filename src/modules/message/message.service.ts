@@ -8,6 +8,32 @@ export class MessageService {
     
     constructor(private readonly prisma: PrismaService) {}
 
+    private async getOrCreateDirectConversation(senderId: string, recipientId: string) {
+
+        // Sorting ensures A:B and B:A produce the same key.
+        const [userA, userB] = [senderId, recipientId].sort();
+        const directKey = `direct:${userA}:${userB}`;
+
+        return this.prisma.conversation.upsert({
+            where: { directKey },
+            update: {},
+            create: {
+                type: 'DIRECT',
+                directKey,
+                createdById: senderId,
+                members: {
+                    create: [
+                        { userId: senderId, role: 'OWNER' },
+                        { userId: recipientId, role: 'MEMBER' }
+                    ]
+                }
+            },
+            select: {
+                id: true,
+            }
+        });
+    }
+
     async create(dto: CreateMessageInput) {
         
         if (dto.senderId === dto.recipientId) {
@@ -17,20 +43,32 @@ export class MessageService {
         }
 
         try {
-            return await this.prisma.message.create({
+            const conversation = await this.getOrCreateDirectConversation(
+                dto.senderId,
+                dto.recipientId,
+            );
+
+            const message = await this.prisma.message.create({
                 data: {
                     senderId: dto.senderId,
-                    recipientId: dto.recipientId,
+                    conversationId: conversation.id,
                     content: dto.content
                 },
                 select: {
                     id: true,
                     senderId: true,
-                    recipientId: true,
+                    conversationId: true,
                     content: true,
                     createdAt: true
                 }
             });
+
+            // Keep recipientId in the response for backward compatibility.
+            return {
+                ...message,
+                recipientId: dto.recipientId
+            };
+
         } catch(error) {
             if(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
                 throw new NotFoundException('Sender or recipient does not exist');
@@ -45,27 +83,43 @@ export class MessageService {
             throw new BadRequestException("Conversation requires two different users");
         }
 
-        const messages = await this.prisma.message.findMany({
-            where: {
-                OR: [
-                    {senderId: currentUserId, recipientId: otherUserId},
-                    {senderId: otherUserId, recipientId: currentUserId}
-                ]
-            },
-            orderBy: [
-                {createdAt: 'desc'},
-                {id: 'desc'}
-            ],
-            take: 50,
+        const [userA, userB] = [currentUserId, otherUserId].sort();
+
+        const directKey = `direct:${userA}:${userB}`;
+
+        const conversation = await this.prisma.conversation.findUnique({
+            where: { directKey },
             select: {
-                id: true,
-                senderId: true,
-                recipientId: true,
-                content: true,
-                createdAt: true,
+                id: true
             }
         });
 
-        return messages.reverse();
+        // no messages means an empty array.
+        if(!conversation) {
+            return [];
+        }
+
+        const messages = await this.prisma.message.findMany({
+            where: {
+                conversationId: conversation.id
+            },
+            orderBy: [
+                { createdAt: 'desc' },
+                { id: 'desc' }
+            ],
+            take: 50, // limit to 50 messages => later pagination can be implemented
+            select: {
+                id: true,
+                senderId: true,
+                conversationId: true,
+                content: true,
+                createdAt: true
+            }
+        });
+
+        return messages.reverse().map((message) => ({
+            ...message,
+            recipientId: message.senderId === currentUserId ? otherUserId : currentUserId
+        }));
     }
 }

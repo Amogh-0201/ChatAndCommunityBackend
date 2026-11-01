@@ -12,6 +12,16 @@ datasource db {
   provider = "postgresql"
 }
 
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ConversationRole {
+  OWNER
+  MEMBER
+}
+
 model User {
   id           String   @id @default(uuid())
   name         String
@@ -22,26 +32,71 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
+  // Messages Sent by this user
   sentMessages     Message[]  @relation("SentMessages")
-  receivedMessages Message[]  @relation("ReceivedMessages")
+  
+  // Conversations created by this user
+  createdConversations Conversation[] @relation("CreatedConversations")
+
+  // Conversations this user belongs to
+  conversationMemberships ConversationMember[]
 
   authSessions AuthSession[]
 }
 
+model Conversation {
+  id          String   @id @default(uuid())
+  type        ConversationType
+  name        String?
+  directKey   String?  @unique
+
+  createdById String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // The user who created this conversation
+  createdBy   User     @relation("CreatedConversations", fields: [createdById], references: [id], onDelete: Restrict)
+
+  // Users participating in this conversation
+  members     ConversationMember[]
+
+  // Messages belonging to this conversation
+  messages    Message[]
+
+  @@index([type, updatedAt])
+}
+
+model ConversationMember {
+  conversationId String
+  userId         String
+
+  role           ConversationRole @default(MEMBER)
+  joinedAt       DateTime         @default(now())
+
+  conversation   Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // A user can belong to a conversation only once
+  @@id([conversationId, userId])
+
+  @@index([userId, joinedAt])
+}
+
 model Message {
-  id          String  @id @default(uuid())
-  content     String
+  id             String  @id @default(uuid())
+  content        String
 
-  senderId    String
-  recipientId String
-
-  sender     User     @relation("SentMessages", fields: [senderId], references: [id])
-  recipient  User     @relation("ReceivedMessages", fields: [recipientId], references: [id])
+  senderId       String
+  conversationId String
 
   createdAt  DateTime @default(now())
+
+  sender     User     @relation("SentMessages", fields: [senderId], references: [id], onDelete: Restrict)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
   
-  @@index([senderId, recipientId, createdAt])
-  @@index([recipientId, senderId, createdAt])
+  @@index([senderId, createdAt])
+  @@index([conversationId, createdAt])
 }
 
 model AuthSession {

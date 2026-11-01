@@ -187,7 +187,7 @@ async function main() {
 
     try {
       const content =
-        `WebSocket test message ${new Date().toISOString()}`;
+        `WebSocket test message another ${new Date().toISOString()}`;
 
       // No senderId is sent. The server gets it from the JWT.
       const ack = await emitAck(clientA, 'message:send', {

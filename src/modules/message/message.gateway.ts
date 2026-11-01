@@ -2,7 +2,6 @@ import { HttpException, Logger, UseGuards, UsePipes, ValidationPipe } from '@nes
 import {ConnectedSocket, MessageBody, OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer, WsException} from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io';
 import { MessageService } from './message.service';
-import { JoinUserDto } from './dto/join-user.dto';
 import { SendWsMessageDto } from './dto/send-ws-message.dto';
 import { WsSessionGuard } from './guards/ws-session.guard';
 import { JwtService } from '@nestjs/jwt';
