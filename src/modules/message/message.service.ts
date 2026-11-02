@@ -1,113 +1,113 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../lib/database/prisma.service';
-import { CreateMessageInput } from './types/create-message-input';
 import { Prisma } from '../../generated/prisma/client';
+import { ConversationService } from '../conversation/conversation.service';
+
+interface SendConversationMessageInput {
+    senderId: string;
+    conversationId: string;
+    content: string;
+}
 
 @Injectable()
 export class MessageService {
     
-    constructor(private readonly prisma: PrismaService) {}
+    constructor(
+        private readonly prisma: PrismaService,
+        private readonly conversationService: ConversationService
+    ) {}
 
-    private async getOrCreateDirectConversation(senderId: string, recipientId: string) {
-
-        // Sorting ensures A:B and B:A produce the same key.
-        const [userA, userB] = [senderId, recipientId].sort();
-        const directKey = `direct:${userA}:${userB}`;
-
-        return this.prisma.conversation.upsert({
-            where: { directKey },
-            update: {},
-            create: {
-                type: 'DIRECT',
-                directKey,
-                createdById: senderId,
-                members: {
-                    create: [
-                        { userId: senderId, role: 'OWNER' },
-                        { userId: recipientId, role: 'MEMBER' }
-                    ]
-                }
-            },
-            select: {
-                id: true,
-            }
-        });
-    }
-
-    async create(dto: CreateMessageInput) {
-        
-        if (dto.senderId === dto.recipientId) {
-            throw new BadRequestException(
-                'You cannot send a message to yourself',
-            );
-        }
-
+    async sendToConversation(dto: SendConversationMessageInput) {
         try {
-            const conversation = await this.getOrCreateDirectConversation(
-                dto.senderId,
-                dto.recipientId,
-            );
+            return await this.prisma.$transaction(async (tx) => {
+                // Check that the sender is a member of this conversation.
+                const membership = await tx.conversationMember.findUnique({
+                    where: {
+                        conversationId_userId: {
+                            conversationId: dto.conversationId,
+                            userId: dto.senderId
+                        }
+                    },
+                    select: { userId: true }
+                });
 
-            const message = await this.prisma.message.create({
-                data: {
-                    senderId: dto.senderId,
-                    conversationId: conversation.id,
-                    content: dto.content
-                },
-                select: {
-                    id: true,
-                    senderId: true,
-                    conversationId: true,
-                    content: true,
-                    createdAt: true
-                }
+                if(!membership) throw new ForbiddenException('You are not a member of this conversation.');
+
+                // Persist the message.
+                const message = await tx.message.create({
+                    data: {
+                        senderId: dto.senderId,
+                        conversationId: dto.conversationId,
+                        content: dto.content
+                    },
+                    select: {
+                        id: true,
+                        senderId: true,
+                        conversationId: true,
+                        content: true,
+                        createdAt: true
+                    }
+                });
+
+                // Update conversation activity.
+                await tx.conversation.update({
+                    where: { id: dto.conversationId },
+                    data: { updatedAt: new Date() }
+                });
+
+                //console.log(message);
+                return message;
             });
-
-            // Keep recipientId in the response for backward compatibility.
-            return {
-                ...message,
-                recipientId: dto.recipientId
-            };
-
         } catch(error) {
             if(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-                throw new NotFoundException('Sender or recipient does not exist');
+                throw new NotFoundException('Sender or conversation does not exist');
             }
             throw error;
         }
     }
 
-    async getConversation(currentUserId: string, otherUserId: string) {
-        
-        if(currentUserId === otherUserId) {
-            throw new BadRequestException("Conversation requires two different users");
+    async getConversationMessages(
+        conversationId: string,
+        currentUserId: string,
+        limit = 50,
+        cursor?: string
+    ) {
+        if(!Number.isInteger(limit) || limit < 1 || limit > 100) {
+            throw new BadRequestException('Limit must be between 1 and 100');
         }
 
-        const [userA, userB] = [currentUserId, otherUserId].sort();
+        // Only conversation members can read its messages.
+        await this.conversationService.assertMember(conversationId, currentUserId);
 
-        const directKey = `direct:${userA}:${userB}`;
+        // A cursor must belong to the requested conversation.
+        if(cursor) {
+            const cursorMessage = await this.prisma.message.findFirst({
+                where: {
+                    id: cursor,
+                    conversationId
+                },
+                select: { id: true }
+            });
 
-        const conversation = await this.prisma.conversation.findUnique({
-            where: { directKey },
-            select: {
-                id: true
-            }
-        });
-
-        // no messages means an empty array.
-        if(!conversation) {
-            return [];
+            if(!cursorMessage) throw new BadRequestException('Invalid message cursor');
         }
 
         const messages = await this.prisma.message.findMany({
             where: {
-                conversationId: conversation.id
+                conversationId 
             },
             orderBy: [
                 { createdAt: 'desc' },
                 { id: 'desc' }
             ],
-            take: 50, // limit to 50 messages => later pagination can be implemented
+            take: limit + 1,
+
+            ...(cursor? {
+                    cursor: { id: cursor },
+                    skip: 1
+                } : {}
+            ),
+
             select: {
                 id: true,
                 senderId: true,
@@ -117,9 +117,18 @@ export class MessageService {
             }
         });
 
-        return messages.reverse().map((message) => ({
-            ...message,
-            recipientId: message.senderId === currentUserId ? otherUserId : currentUserId
-        }));
+        const hasMore = messages.length > limit;
+
+        const page = messages.slice(0, limit);
+
+        // The next cursor points to the oldest message in this page.
+        const nextCursor = hasMore ? page[page.length - 1].id : null;
+
+        // Return messages chronologically.
+        return  {
+            messages: page.reverse(),
+            nextCursor,
+            hasMore
+        };
     }
 }

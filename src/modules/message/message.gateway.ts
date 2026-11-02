@@ -9,6 +9,8 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../lib/database/prisma.service';
 import { SocketSessionRegistry } from '../auth/socket-session-registry.service';
 import { SocketAuthUser } from '../auth/types/socket-auth-user';
+import { ConversationService } from '../conversation/conversation.service';
+import { ConversationRoomDto } from './dto/conversation-room.dto';
 
 
 type AccessTokenPayload = {
@@ -48,6 +50,7 @@ export class MessageGateway implements OnGatewayInit {
         private readonly jwtService: JwtService,
         private readonly configService: ConfigService,
         private readonly prisma: PrismaService,
+        private readonly conversationService: ConversationService,
         private readonly socketSessionRegistry: SocketSessionRegistry
     ) {}
 
@@ -158,7 +161,50 @@ export class MessageGateway implements OnGatewayInit {
         }
     }
 
-    // save and deliver a message
+    @SubscribeMessage('conversation:join')
+    async handleJoinConversation(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: ConversationRoomDto
+    ) {
+        const authUser = client.data.authUser as SocketAuthUser;
+
+        try {
+            await this.conversationService.assertMember(data.conversationId, authUser.id);
+            await client.join(`conversation:${data.conversationId}`);
+
+            return {
+                ok: true,
+                conversationId: data.conversationId
+            };
+        } catch(error) {
+            if(error instanceof HttpException) {
+                return {
+                    ok: false,
+                    error: error.message
+                };
+            }
+
+            this.logger.error('Conversation join failed', error);
+
+            return {
+                ok: false,
+                error: 'Unable to join conversation'
+            };
+        }
+    }
+
+    @SubscribeMessage('conversation:leave')
+    async handleLeaveConversation(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: ConversationRoomDto
+    ) {
+        await client.leave(`conversation:${data.conversationId}`);
+        return {
+            ok: true,
+            conversationId: data.conversationId
+        };
+    }
+
     @SubscribeMessage('message:send')
     async handleMessage(
         @ConnectedSocket() client: Socket,
@@ -167,43 +213,33 @@ export class MessageGateway implements OnGatewayInit {
         const authUser = client.data.authUser as SocketAuthUser;
 
         try {
-            // Never accept senderId from the client.
-            const message = await this.messageService.create({
+            // Persist the message after checking membership.
+            const message = await this.messageService.sendToConversation({
                 senderId: authUser.id,
-                recipientId: data.recipientId,
+                conversationId: data.conversationId,
                 content: data.content
             });
 
-            // Deliver to all connected devices belonging to the recipient.
-            this.server
-                .to(`user:${data.recipientId}`)
-                .emit('message:new', message);
-            
-            // Deliver to the sender's OTHER devices, excluding this socket.
-            client
-                .to(`user:${authUser.id}`)
-                .emit('message:new', message);
-            
-            // The current sender receives this response via its ack callback.
-            return {
+            const room = `conversation:${data.conversationId}`;
+
+            // Ensure the sending socket is also subscribed.
+            await client.join(room);
+
+            // Notify other sockets in this conversation.
+            client.to(room).emit('message:new', message);
+
+            return  {
                 ok: true,
                 message
             };
-
         } catch(error) {
-            console.error('[WS] message:send failed:', error);
-            if (error instanceof HttpException) {
+            this.logger.error('[WS] message:send failed:', error);
+            if(error instanceof HttpException) {
                 return {
                     ok: false,
-                    error: error.message,
+                    error: error.message
                 };
             }
-
-            this.logger.error(
-                'Message sending failed',
-                error instanceof Error ? error.stack : String(error),
-            );
-
             return {
                 ok: false,
                 error: 'Unable to send message',

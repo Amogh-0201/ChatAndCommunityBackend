@@ -5,9 +5,10 @@ import { PrismaModule } from '../../lib/database/prisma.module';
 import { MessageGateway } from './message.gateway';
 import { AuthModule } from '../auth/auth.module';
 import { WsSessionGuard } from './guards/ws-session.guard';
+import { ConversationModule } from '../conversation/conversation.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule],
+  imports: [PrismaModule, AuthModule, ConversationModule],
   controllers: [MessageController],
   providers: [MessageService, MessageGateway, WsSessionGuard],
   exports: [MessageService]

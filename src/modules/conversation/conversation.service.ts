@@ -62,6 +62,52 @@ export class ConversationService {
         return membership;
     }
 
+    // create or get direct conversations
+    async getOrCreateDirectConversation(currentUserId: string, otherUserId: string) {
+        
+        if(currentUserId === otherUserId) {
+            throw new BadRequestException("Conversation requires two different users");
+        }
+
+        const [userA, userB] = [currentUserId, otherUserId].sort();
+        const directKey = `direct:${userA}:${userB}`;
+
+        try {
+            return await this.prisma.conversation.upsert({
+                where: { directKey },
+                update: {},
+                create: {
+                    type: ConversationType.DIRECT,
+                    directKey,
+                    createdById: currentUserId,
+                    members: {
+                        create: [
+                            { userId: currentUserId, role: ConversationRole.OWNER },
+                            { userId: otherUserId, role: ConversationRole.MEMBER }
+                        ]
+                    }
+                },
+                select: {
+                    id: true,
+                    type: true,
+                    createdAt: true,
+                    members: {
+                        select: {
+                            userId: true,
+                            role: true
+                        }
+                    }
+                }
+            });
+        } catch(error) {
+            if(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+                throw new NotFoundException('One or both users do not exist');
+            }
+            throw error;
+        }
+
+    }
+
 
     // Create group
     async createGroup(userId: string, dto: CreateGroupDto) {

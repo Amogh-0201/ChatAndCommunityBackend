@@ -57,7 +57,7 @@ Tools will be added when their responsibilities are needed—not simply to incre
 - [x] Add a Socket.IO gateway for real-time, one-to-one messaging.
 - [x] Test two connected clients, message acknowledgements, delivery events, and database persistence.
 - [x] Secure users and messaging with authentication and authorization.
-- [ ] Introduce first-class conversations and group chats. **← NEXT**
+- [x] Introduce first-class conversations and group chats. **← NEXT**
 - [ ] Complete and validate the V1 end-to-end feature set.
 
 ### Current architecture
@@ -209,16 +209,16 @@ The currently implemented routes are documented in the [Implemented API referenc
 
 ## Phase 1.5 — Conversation model and group chats **← NEXT**
 
-- [ ] Introduce a `Conversation` model with a type such as `DIRECT` or `GROUP`.
-- [ ] Introduce conversation membership (e.g., `ConversationMember`) and ownership/admin rules where needed.
-- [ ] Relate stored messages to conversations; migrate the initial direct-message model as needed.
-- [ ] Create or retrieve a direct conversation between two users without creating duplicates.
-- [ ] Create group conversations and manage their members.
-- [ ] List conversations visible to the authenticated user.
-- [ ] Fetch messages for an authorized conversation.
-- [ ] Join a Socket.IO conversation room **only after** checking membership.
-- [ ] Send a message to an authorized conversation and broadcast to its members.
-- [ ] Define how the existing direct-message endpoints transition to conversation-based endpoints.
+- [x] Introduce a `Conversation` model with a type such as `DIRECT` or `GROUP`.
+- [x] Introduce conversation membership (e.g., `ConversationMember`) and ownership/admin rules where needed.
+- [x] Relate stored messages to conversations; migrate the initial direct-message model as needed.
+- [x] Create or retrieve a direct conversation between two users without creating duplicates.
+- [x] Create group conversations and manage their members.
+- [x] List conversations visible to the authenticated user.
+- [x] Fetch messages for an authorized conversation.
+- [x] Join a Socket.IO conversation room **only after** checking membership.
+- [x] Send a message to an authorized conversation and broadcast to its members.
+- [x] Define how the existing direct-message endpoints transition to conversation-based endpoints.
 
 **Milestone:** The same backend supports both one-to-one and group conversations with correctly enforced membership.
 

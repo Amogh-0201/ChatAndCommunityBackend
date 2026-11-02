@@ -4,7 +4,7 @@ import { Transform } from 'class-transformer';
 export class SendWsMessageDto {
 
     @IsUUID()
-    recipientId: string;
+    conversationId: string;
 
     @Transform(({value}) => 
         typeof value === 'string' ? value.trim() : value

@@ -18,6 +18,15 @@ export class ConversationController {
 
     constructor(private readonly conversationService: ConversationService) {}
 
+    // Get an existing direct conversation or create one
+    @Post('direct/:otherUserId')
+    getOrCreateDirectConversation(
+        @Req() req: AuthenticatedRequest,
+        @Param(':otherUserId', ParseUUIDPipe) otherUserId: string 
+    ) {
+        return this.conversationService.getOrCreateDirectConversation(req.user.id, otherUserId);
+    }
+
     // Create a group
     @Post('groups')
     createGroup(
