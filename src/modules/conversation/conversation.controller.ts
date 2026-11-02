@@ -22,7 +22,7 @@ export class ConversationController {
     @Post('direct/:otherUserId')
     getOrCreateDirectConversation(
         @Req() req: AuthenticatedRequest,
-        @Param(':otherUserId', ParseUUIDPipe) otherUserId: string 
+        @Param('otherUserId', ParseUUIDPipe) otherUserId: string
     ) {
         return this.conversationService.getOrCreateDirectConversation(req.user.id, otherUserId);
     }

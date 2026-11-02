@@ -104,34 +104,35 @@ test/                             # End-to-end tests
 
 ### Implemented API reference
 
-All routes below are implemented by the current application. Unless marked **Public**, send `Authorization: Bearer <accessToken>`. Requests with DTOs are validated; unknown fields are rejected.
+All REST routes below require `Authorization: Bearer <accessToken>` unless marked **Public**. Requests with DTOs are validated, transformed, and reject unknown fields.
 
 #### REST endpoints
 
 | Method | Route | Access | What it does |
 | --- | --- | --- | --- |
 | `GET` | `/` | Public | Returns the application's greeting. |
-| `POST` | `/auth/register` | Public | Registers a user and returns an access/refresh token pair. Body: `{ "name": "...", "username": "...", "phoneNumber": "+...", "password": "..." }`. |
-| `POST` | `/auth/login` | Public | Authenticates with username and password and returns a token pair. Body: `{ "username": "...", "password": "..." }`. |
-| `POST` | `/auth/refresh` | Public | Rotates the refresh token and returns a new token pair. Body: `{ "refreshToken": "..." }`. |
+| `POST` | `/auth/register` | Public | Registers a user. Body: `{ "name": "...", "username": "...", "phoneNumber": "+...", "password": "..." }`. |
+| `POST` | `/auth/login` | Public | Authenticates with username and password. Body: `{ "username": "...", "password": "..." }`. |
+| `POST` | `/auth/refresh` | Public | Rotates the refresh token. Body: `{ "refreshToken": "..." }`. |
 | `POST` | `/auth/logout` | Public | Revokes the session identified by the supplied refresh token. Body: `{ "refreshToken": "..." }`. |
 | `POST` | `/auth/logout-all` | Authenticated | Revokes all of the current user's sessions and disconnects their sockets. |
-| `GET` | `/user` | Authenticated | Lists up to 50 users (id, name and username), newest first. |
-| `GET` | `/user/me` | Authenticated | Returns the current user's profile, including phone number. |
-| `GET` | `/messages/between/:otherUserId` | Authenticated | Returns up to the latest 50 messages in the current user's direct conversation with the specified UUID; results are oldest-first. Returns an empty array if no conversation exists. |
+| `GET` | `/user` | Authenticated | Lists up to 50 users (id, name, username, and createdAt), newest first. |
+| `GET` | `/user/me` | Authenticated | Returns the current user's profile (id, name, username, phoneNumber, and createdAt). |
+| `POST` | `/conversations/direct/:otherUserId` | Authenticated | Gets or creates the direct conversation between the current user and the specified user. The response includes the conversation id, type, creation time, and member ids/roles. |
 | `POST` | `/conversations/groups` | Authenticated | Creates a group with the current user as owner. Body: `{ "name": "...", "joinPolicy": "OPEN" }`; `joinPolicy` is optional and defaults to `REQUEST`. |
-| `GET` | `/conversations` | Authenticated | Lists conversations the current user belongs to, newest-updated first, including members and the latest message. |
+| `GET` | `/conversations` | Authenticated | Lists the current user's conversations, newest-updated first, including member summaries/count and the latest message. |
 | `GET` | `/conversations/:id` | Authenticated | Returns conversation details. Direct conversations require membership; authenticated users can view group details before joining. |
-| `PATCH` | `/conversations/:id` | Authenticated, group owner | Updates a group's `name` and/or `joinPolicy` (`OPEN` or `REQUEST`). |
+| `PATCH` | `/conversations/:id` | Authenticated, group owner | Updates a group's `name` and/or `joinPolicy` (`OPEN` or `REQUEST`). At least one field is required. |
 | `POST` | `/conversations/:id/join` | Authenticated | Joins an `OPEN` group immediately or creates/reopens a pending request for a `REQUEST` group. |
 | `DELETE` | `/conversations/:id/leave` | Authenticated member | Leaves a group. The owner cannot leave. |
 | `GET` | `/conversations/:id/join-requests` | Authenticated, group owner | Lists pending join requests for the group. |
 | `PATCH` | `/conversations/:id/join-requests/:requestId` | Authenticated, group owner | Approves or rejects a pending request. Body: `{ "action": "APPROVE" }` or `{ "action": "REJECT" }`. |
 | `DELETE` | `/conversations/:id/join-requests/me` | Authenticated | Cancels the current user's pending request for the group. |
+| `GET` | `/conversations/:conversationId/messages` | Authenticated member | Lists messages in chronological order. Query: `limit` (default `50`, range `1`-`100`) and optional `cursor` (a message id from this conversation). Returns `{ "messages": [...], "nextCursor": "... or null", "hasMore": true }`; use `nextCursor` for the next page. |
 
-`POST /auth/register` and `POST /auth/login` return `accessToken`, `refreshToken`, `tokenType`, `expiresIn` (seconds), expiry timestamps, and the user profile. The access token is short-lived; use `/auth/refresh` to rotate the refresh token. The `:id`, `:requestId`, and `:otherUserId` path parameters are UUIDs.
+`/auth/register`, `/auth/login`, and `/auth/refresh` return `accessToken`, `refreshToken`, `tokenType`, `expiresIn` (seconds), `refreshTokenExpiresAt`, `sessionExpiresAt`, and the user profile. Access tokens are short-lived; use `/auth/refresh` to rotate the refresh token. The `:id`, `:requestId`, `:otherUserId`, and `:conversationId` path parameters are UUIDs.
 
-Direct conversations are created automatically when the first direct message is sent. There is no REST `POST /messages` endpoint; direct messages are sent over Socket.IO as described below.
+Direct conversations can be created explicitly with `POST /conversations/direct/:otherUserId`. Messages are sent over Socket.IO; there is no REST message-creation endpoint.
 
 #### Socket.IO events
 
@@ -143,13 +144,14 @@ const socket = io(API_BASE_URL, {
 });
 ```
 
-The server validates the token and its active session, then joins the socket to a server-selected user room. There is no client `user:join` event.
-The implemented gateway supports direct messages; it does not yet send messages to group-conversation rooms.
+The server validates the token and its active session, then joins the socket to a server-selected user room. There is no client `user:join` event. Use `conversation:join` to subscribe a socket to a conversation before it can receive that conversation's broadcasts; only conversation members can join. Sending a message also joins the sending socket to that conversation.
 
 | Direction | Event | Payload / acknowledgement | What it does |
 | --- | --- | --- | --- |
-| Client → server | `message:send` | `{ "recipientId": "<user UUID>", "content": "..." }`; acknowledge with `{ "ok": true, "message": { ... } }` or `{ "ok": false, "error": "..." }` | Persists a direct message and sends it to the recipient's connected devices and the sender's other connected devices. The sender ID is derived from the authenticated socket, not supplied by the client. |
-| Server → client | `message:new` | Message object with `id`, `senderId`, `conversationId`, `content`, `createdAt`, and `recipientId` | Announces a persisted direct message to recipient sockets and the sender's other sockets. The sending socket receives the message in its `message:send` acknowledgement instead. |
+| Client → server | `conversation:join` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` or `{ "ok": false, "error": "..." }` | Joins the authenticated member's socket to the conversation room. |
+| Client → server | `conversation:leave` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` | Leaves the conversation room for this socket. |
+| Client → server | `message:send` | `{ "conversationId": "<conversation UUID>", "content": "..." }`; acknowledge with `{ "ok": true, "message": { ... } }` or `{ "ok": false, "error": "..." }` | Persists a message in a conversation where the authenticated user is a member. `content` is trimmed and must contain 1-2000 characters. The sender id is taken from the authenticated socket, not supplied by the client. |
+| Server → client | `message:new` | Message object with `id`, `senderId`, `conversationId`, `content`, and `createdAt` | Announces a persisted message to other sockets currently in the conversation room. The sending socket receives the message in its `message:send` acknowledgement. |
 
 The standard Socket.IO `connect`, `connect_error`, and `disconnect` lifecycle events also apply. Connections are rejected without a valid active-session access token and disconnected when that token expires.
 
