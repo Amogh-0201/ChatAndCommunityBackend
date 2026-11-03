@@ -144,16 +144,23 @@ const socket = io(API_BASE_URL, {
 });
 ```
 
-The server validates the token and its active session, then joins the socket to a server-selected user room. There is no client `user:join` event. Use `conversation:join` to subscribe a socket to a conversation before it can receive that conversation's broadcasts; only conversation members can join. Sending a message also joins the sending socket to that conversation.
+The server validates the access token and its active session, joins the socket to a server-selected `user:<userId>` room, and disconnects it when the access token expires. There is no client `user:join` event. Message delivery targets each conversation member's user room, so clients do not need to join a conversation room to send or receive messages. `conversation:join` is required for conversation-scoped presence snapshots and typing events; only members can join.
 
 | Direction | Event | Payload / acknowledgement | What it does |
 | --- | --- | --- | --- |
-| Client → server | `conversation:join` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` or `{ "ok": false, "error": "..." }` | Joins the authenticated member's socket to the conversation room. |
+| Client → server | `conversation:join` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` or `{ "ok": false, "error": "..." }` | Checks membership and joins this socket to the conversation room. Also emits a `presence:snapshot` to this socket containing the online IDs of the conversation's other members. |
 | Client → server | `conversation:leave` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` | Leaves the conversation room for this socket. |
 | Client → server | `message:send` | `{ "conversationId": "<conversation UUID>", "content": "..." }`; acknowledge with `{ "ok": true, "message": { ... } }` or `{ "ok": false, "error": "..." }` | Persists a message in a conversation where the authenticated user is a member. `content` is trimmed and must contain 1-2000 characters. The sender id is taken from the authenticated socket, not supplied by the client. |
-| Server → client | `message:new` | Message object with `id`, `senderId`, `conversationId`, `content`, and `createdAt` | Announces a persisted message to other sockets currently in the conversation room. The sending socket receives the message in its `message:send` acknowledgement. |
+| Server → client | `message:new` | Message object with `id`, `senderId`, `conversationId`, `content`, and `createdAt` | Announces a persisted message to every connected socket of the conversation's other members and the sender's other sockets, except the socket that sent it. The originating socket receives the message in its `message:send` acknowledgement. |
+| Client → server | `presence:get-snapshot` | No payload; acknowledges `{ "ok": true }` | Requests an updated presence snapshot for the authenticated user's peers (users who share at least one conversation). The server also emits `presence:snapshot` to this socket. |
+| Server → client | `presence:snapshot` | `{ "onlineUserIds": ["<user UUID>", ...] }` | Lists currently online peers. Emitted on connection, on `presence:get-snapshot`, and after successfully joining a conversation (the latter contains that conversation's other members). |
+| Server → client | `presence:online` | `{ "userId": "<user UUID>" }` | Announces that a peer sharing a conversation has become online. Emitted when their first socket connects. |
+| Server → client | `presence:offline` | `{ "userId": "<user UUID>" }` | Announces that a peer sharing a conversation has gone offline. Emitted when their last socket disconnects. |
+| Client → server | `typing:start` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true }` or `{ "ok": false, "error": "..." }` | Emits `typing:started` to the other sockets in the conversation room. The user must be a member and this socket must have joined the room. |
+| Client → server | `typing:stop` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true }` or `{ "ok": false, "error": "..." }` | Emits `typing:stopped` to the other sockets in the conversation room. The user must be a member and this socket must have joined the room. |
+| Server → client | `typing:started`, `typing:stopped` | `{ "conversationId": "<conversation UUID>", "userId": "<user UUID>" }` | Notifies the other sockets in a joined conversation when a member starts or stops typing. These events are ephemeral and are not persisted. |
 
-The standard Socket.IO `connect`, `connect_error`, and `disconnect` lifecycle events also apply. Connections are rejected without a valid active-session access token and disconnected when that token expires.
+The standard Socket.IO `connect`, `connect_error`, and `disconnect` lifecycle events also apply. Connections are rejected without a valid active-session access token and disconnected when that token expires. Presence and typing events are ephemeral; they are not stored in the database.
 
 ---
 
