@@ -3,7 +3,6 @@
 > A progressively built, real-time chat and community backend for learning **NestJS, WebSockets, backend architecture, distributed messaging, microservices, event-driven systems, and deployment**—one working version at a time.
 
 **Current milestone:** Version 1 — Functional Chat Application (in progress)  
-**Next task:** JWT authentication for REST APIs and Socket.IO connections.
 
 ---
 
