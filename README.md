@@ -48,7 +48,7 @@ Tools will be added when their responsibilities are needed—not simply to incre
 
 ## Current Progress
 
-**Status as of October 27, 2026**
+**Status as of November 3, 2026**
 
 - [x] Initialize NestJS + TypeScript application.
 - [x] Configure PostgreSQL and Prisma.
@@ -57,8 +57,8 @@ Tools will be added when their responsibilities are needed—not simply to incre
 - [x] Add a Socket.IO gateway for real-time, one-to-one messaging.
 - [x] Test two connected clients, message acknowledgements, delivery events, and database persistence.
 - [x] Secure users and messaging with authentication and authorization.
-- [x] Introduce first-class conversations and group chats. **← NEXT**
-- [ ] Complete and validate the V1 end-to-end feature set.
+- [x] Introduce first-class conversations and group chats.
+- [ ] Complete and validate the V1 end-to-end feature set. **← NEXT**
 
 ### Current architecture
 
@@ -226,12 +226,12 @@ The currently implemented routes are documented in the [Implemented API referenc
 
 ## Phase 1.6 — Basic chat experience
 
-- [ ] Add typing-started / typing-stopped events (ephemeral; no database write required).
-- [ ] Add basic online/offline connection tracking for the single-instance V1 server.
-- [ ] Support multiple simultaneous sockets for one authenticated user.
-- [ ] Validate message content and enforce reasonable message size limits.
-- [ ] Handle disconnects, errors and basic client reconnection cleanly.
-- [ ] Ensure REST-created messages and WebSocket-created messages follow consistent business rules and real-time notification behavior.
+- [x] Add typing-started / typing-stopped events (ephemeral; no database write required).
+- [x] Add basic online/offline connection tracking for the single-instance V1 server.
+- [x] Support multiple simultaneous sockets for one authenticated user.
+- [x] Validate message content and enforce reasonable message size limits.
+- [x] Handle disconnects, errors and basic client reconnection cleanly.
+- [x] Ensure REST-created messages and WebSocket-created messages follow consistent business rules and real-time notification behavior. (REST ENDPOINTS ARE REMOVED AND NOTIFICATION IS FUTURE PLAN)
 
 **Milestone:** A practical, responsive V1 chat flow rather than isolated endpoint demonstrations.
 

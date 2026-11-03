@@ -125,17 +125,31 @@ export class MessageGateway implements OnGatewayInit {
             return;
         }
 
-        // Only the server chooses which user room this socket joins.
-        await client.join(`user:${authUser.id}`);
-
-        this.socketSessionRegistry.register(authUser.sessionId, client);
-
         // Disconnect the socket when its access token expires.
         const remainingMs = authUser.expiresAt - Date.now();
 
         if(remainingMs <= 0) {
             client.disconnect(true);
             return;
+        }
+
+        // Only the server chooses which user room this socket joins.
+        await client.join(`user:${authUser.id}`);
+
+        const becameOnline = this.socketSessionRegistry.register(authUser.sessionId, authUser.id, client);
+        if(becameOnline) {
+            try {
+                await this.broadcastPresence(authUser.id, 'presence:online');
+            } catch(error) {
+                this.logger.error('Failed to broadcast online presence', error);
+            }
+        }
+
+        // Send the connecting socket the current presence of its peers.
+        try {
+            await this.sendPresenceSnapshot(client, authUser.id);
+        } catch(error) {
+            this.logger.error('Failed to send presence snapshot', error);
         }
 
         const expiryTimer = setTimeout(
@@ -156,9 +170,16 @@ export class MessageGateway implements OnGatewayInit {
             clearTimeout(expiryTimer);
         }
 
-        if(authUser) {
-            this.socketSessionRegistry.unregister(authUser.sessionId, client);
+        if(!authUser) return;
+        
+        const becameOffline = this.socketSessionRegistry.unregister(authUser.sessionId, authUser.id, client);
+        if(becameOffline) {
+            void this.broadcastPresence(authUser.id, 'presence:offline')
+                .catch(error => {
+                    this.logger.error('Failed to broadcast offline presence', error);
+                });
         }
+        
     }
 
     @SubscribeMessage('conversation:join')
@@ -171,6 +192,20 @@ export class MessageGateway implements OnGatewayInit {
         try {
             await this.conversationService.assertMember(data.conversationId, authUser.id);
             await client.join(`conversation:${data.conversationId}`);
+
+            // Send the online status of the other members in this conversation.
+            const peers = await this.prisma.conversationMember.findMany({
+                where: {
+                    conversationId: data.conversationId,
+                    userId: { not: authUser.id }
+                },
+                select: { userId: true }
+            });
+
+            const onlineUserIds = peers.map(peer => peer.userId)
+                .filter(userId => this.socketSessionRegistry.isUserOnline(userId));
+
+            client.emit('presence:snapshot', { onlineUserIds });
 
             return {
                 ok: true,
@@ -220,13 +255,21 @@ export class MessageGateway implements OnGatewayInit {
                 content: data.content
             });
 
-            const room = `conversation:${data.conversationId}`;
+            const members = await this.prisma.conversationMember.findMany({
+                where: { conversationId: data.conversationId },
+                select: { userId: true }
+            });
 
-            // Ensure the sending socket is also subscribed.
-            await client.join(room);
+            for(const member of members) {
+                if(member.userId === authUser.id) {
+                    // Notify the sender's other devices, but not this socket.
+                    client.to(`user:${member.userId}`).emit('message:new', message);
+                    continue;
+                }
 
-            // Notify other sockets in this conversation.
-            client.to(room).emit('message:new', message);
+                // Notify every connected device belonging to this recipient.
+                this.server.to(`user:${member.userId}`).emit('message:new', message);
+            }
 
             return  {
                 ok: true,
@@ -245,5 +288,124 @@ export class MessageGateway implements OnGatewayInit {
                 error: 'Unable to send message',
             };
         }
+    }
+
+    @SubscribeMessage('presence:get-snapshot')
+    async handleGetPresenceSnapshot(
+        @ConnectedSocket() client: Socket
+    ) {
+        const authUser = client.data.authUser as SocketAuthUser;
+        
+        await this.sendPresenceSnapshot(client, authUser.id);
+        
+        return { ok: true };
+    }
+
+    @SubscribeMessage('typing:start')
+    async handleTypingStart(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: ConversationRoomDto
+    ) {
+        return this.handleTypingEvent(client, data, 'typing:started');
+    }
+
+    @SubscribeMessage('typing:stop')
+    async handleTypingStop(
+        @ConnectedSocket() client: Socket,
+        @MessageBody() data: ConversationRoomDto
+    ) {
+        return this.handleTypingEvent(client, data, 'typing:stopped');
+    }
+
+    private async handleTypingEvent(
+        client: Socket,
+        data: ConversationRoomDto,
+        event: 'typing:started' | 'typing:stopped'
+    ) {
+        const authUser = client.data.authUser as SocketAuthUser;
+
+        const room = `conversation:${data.conversationId}`;
+        
+        try {
+            // Verify that the user is actually a member.
+            await this.conversationService.assertMember(data.conversationId, authUser.id);
+
+            // Require the socket to have joined this conversation.
+            if(!client.rooms.has(room)) {
+                return {
+                    ok: false,
+                    error: 'Join the conversation before sending typing events'
+                };
+            }
+
+            // Send to everyone in the room except this socket.
+            client.to(room).emit(event, {
+                conversationId: data.conversationId,
+                userId: authUser.id
+            });
+
+            return { ok: true };
+        } catch(error) {
+            if(error instanceof HttpException) {
+                return {
+                    ok: false,
+                    error: error.message
+                };
+            }
+
+            this.logger.error('Typing event failed', error);
+
+            return {
+                ok: false,
+                error: 'Unable to process typing event'
+            };
+        }
+    }
+
+    private async getConversationPeerIds(userId: string): Promise<string[]> {
+        
+        // Find all conversations this user belongs to.
+        const memberships = await this.prisma.conversationMember.findMany({
+            where: { userId },
+            select: { conversationId: true }
+        });
+
+        const conversationIds = memberships.map(membership => membership.conversationId);
+
+        if (conversationIds.length === 0) return [];
+
+        // Find other members of those conversations.
+        const peers = await this.prisma.conversationMember.findMany({
+            where: {
+                conversationId: { in: conversationIds },
+                userId: { not: userId }
+            },
+            select: { userId: true }
+        });
+
+        // A peer may share multiple conversations, so remove duplicates.
+        return [...new Set(peers.map(peer => peer.userId))];
+    }
+
+    private async broadcastPresence(
+        userId: string,
+        event: 'presence:online' | 'presence:offline'
+    ) {
+        const peerIds = await this.getConversationPeerIds(userId);
+
+        for(const peerId of peerIds) {
+            this.server.to(`user:${peerId}`).emit(event, { userId });
+        }
+    }
+
+    private async sendPresenceSnapshot(client: Socket, userId: string) {
+        
+        const peerIds = await this.getConversationPeerIds(userId);
+        
+        const onlineUserIds = peerIds.filter(
+            peerId => this.socketSessionRegistry.isUserOnline(peerId)
+        );
+
+        client.emit('presence:snapshot', { onlineUserIds });
     }
 }

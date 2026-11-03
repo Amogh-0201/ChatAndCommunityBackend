@@ -5,30 +5,70 @@ import { Socket } from "socket.io";
 export class SocketSessionRegistry {
 
     private readonly socketsBySession = new Map<string, Set<Socket>>();
+    private readonly socketsByUser = new Map<string, Set<Socket>>();
 
-    register(sessionId: string, socket: Socket) {
+    register(sessionId: string, userId: string, socket: Socket): boolean {
         
-        let sockets = this.socketsBySession.get(sessionId);
+        // Track sockets belonging to this session.
+        let sessionSockets = this.socketsBySession.get(sessionId);
 
-        if(!sockets) {
-            sockets = new Set<Socket>();
-            this.socketsBySession.set(sessionId, sockets);
+        if(!sessionSockets) {
+            sessionSockets = new Set<Socket>();
+            this.socketsBySession.set(sessionId, sessionSockets);
         }
 
-        sockets.add(socket);
+        sessionSockets.add(socket);
+
+        // Track sockets belonging to this user.
+        let userSockets = this.socketsByUser.get(userId);
+
+        const isFirstConnection = !userSockets || userSockets.size === 0;
+
+        if(!userSockets) {
+            userSockets = new Set<Socket>();
+            this.socketsByUser.set(userId, userSockets);
+        }
+
+        userSockets.add(socket);
+
+        // True only when the user transitions from offline to online.
+        return isFirstConnection;
     }
 
-    unregister(sessionId: string, socket: Socket) {
+    unregister(sessionId: string, userId: string, socket: Socket): boolean {
         
-        const sockets = this.socketsBySession.get(sessionId);
+        // Remove from session tracking.
+        const sessionSockets = this.socketsBySession.get(sessionId);
 
-        if(!sockets) return;
-
-        sockets.delete(socket);
-
-        if(sockets.size === 0) {
-            this.socketsBySession.delete(sessionId);
+        if(sessionSockets) {
+            sessionSockets.delete(socket);
+            if(sessionSockets.size === 0) {
+                this.socketsBySession.delete(sessionId);
+            }
         }
+
+        // Remove from user tracking.
+        const userSockets = this.socketsByUser.get(userId);
+
+        if(!userSockets) return false;
+
+        userSockets.delete(socket);
+
+        if(userSockets.size === 0) {
+            this.socketsByUser.delete(userId);
+            // True only when the user transitions from online to offline.
+            return true;
+        }
+
+        return false;
+    }
+
+    isUserOnline(userId: string): boolean {
+        return (this.socketsByUser.get(userId)?.size ?? 0) > 0;
+    }
+
+    getOnlineUserIds(): string[] {
+        return [...this.socketsByUser.keys()];
     }
 
     disconnectSession(sessionId: string) {
@@ -43,8 +83,6 @@ export class SocketSessionRegistry {
         for(const socket of [...sockets]) {
             socket.disconnect(true);
         }
-
-        this.socketsBySession.delete(sessionId);
     }
 
     disconnectSessions(sessionIds: string[]) {
