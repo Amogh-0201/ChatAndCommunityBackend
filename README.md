@@ -47,7 +47,7 @@ Tools will be added when their responsibilities are needed—not simply to incre
 
 ## Current Progress
 
-**Status as of November 3, 2026**
+**Status as of November 4, 2026**
 
 - [x] Initialize NestJS + TypeScript application.
 - [x] Configure PostgreSQL and Prisma.
@@ -57,7 +57,7 @@ Tools will be added when their responsibilities are needed—not simply to incre
 - [x] Test two connected clients, message acknowledgements, delivery events, and database persistence.
 - [x] Secure users and messaging with authentication and authorization.
 - [x] Introduce first-class conversations and group chats.
-- [ ] Complete and validate the V1 end-to-end feature set. **← NEXT**
+- [x] Complete and validate the V1 end-to-end feature set. **← NEXT**
 
 ### Current architecture
 
