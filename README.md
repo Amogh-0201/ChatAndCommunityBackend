@@ -101,6 +101,45 @@ src/
 test/                             # End-to-end tests
 ```
 
+### Local configuration and tests
+
+The application reads these variables from the root `.env` file (or the process environment):
+
+| Variable | Required | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | Yes | PostgreSQL connection string used by Prisma. |
+| `JWT_ACCESS_SECRET` | Yes | Secret used to sign access tokens. Keep it private and use a strong value. |
+| `JWT_ISSUER` | Yes | Expected issuer for access tokens. |
+| `JWT_AUDIENCE` | Yes | Expected audience for access tokens. |
+| `PORT` | No | HTTP port; defaults to `3000`. |
+
+Install dependencies, generate the Prisma client, apply local migrations, and start the application:
+
+```powershell
+npm install
+npx prisma generate
+npx prisma migrate dev
+npm run start:dev
+```
+
+The easiest way to run the end-to-end suite is with Docker Desktop running:
+
+```powershell
+npm run test:e2e:docker
+```
+
+This command starts a temporary `postgres:17-alpine` container, waits for PostgreSQL's health check, applies all Prisma migrations, runs `npm run test:e2e`, and removes the container afterward (on success or failure). The test database is isolated from your `.env` database and is not persisted. Docker uses host port `55432`; if that port is occupied, choose another port:
+
+```powershell
+$env:TEST_DATABASE_PORT = "55433"
+npm run test:e2e:docker
+Remove-Item Env:TEST_DATABASE_PORT
+```
+
+The Docker workflow sets `DATABASE_URL` and `TEST_DATABASE_URL` only in its child process and uses temporary JWT test settings; no `.env.test` file or production credentials are needed. To run `npm run test:e2e` directly, set `TEST_DATABASE_URL` in your process environment or create an ignored `.env.test` file yourself, and apply the project migrations to that same test database before running tests. Never point integration tests at a production database.
+
+`npm run test` runs the unit tests; `npm run test:e2e` runs `test/app.e2e-spec.ts` and `test/phase-1.7.e2e-spec.ts` against the dedicated database. The integration suite covers registration/login, protected REST routes, user and conversation APIs, three authenticated users, direct and group messaging, membership denials, server-derived sender identity, persisted message history, a second socket for one user, reconnecting a client, and rejecting a socket without a token. The suite uses Supertest and the existing Socket.IO client to verify correctness; it is not a load benchmark. k6 remains a good fit for the planned V5 load/performance scenarios against a separately running server.
+
 ### Implemented API reference
 
 All REST routes below require `Authorization: Bearer <accessToken>` unless marked **Public**. Requests with DTOs are validated, transformed, and reject unknown fields.
@@ -243,12 +282,11 @@ The currently implemented routes are documented in the [Implemented API referenc
 
 ## Phase 1.7 — V1 tests and completion
 
-- [ ] Add REST integration tests for auth, users, conversations and messages.
-- [ ] Add Socket.IO integration tests with at least two clients.
-- [ ] Test unauthorized access, message persistence and room-membership enforcement.
-- [ ] Test direct chats, group chats, multiple sockets and reconnections.
-- [ ] Document environment variables, local setup and test commands.
-- [ ] Tag the first stable V1 release after the complete flow passes.
+- [x] Add REST integration tests for auth, users, conversations and messages.
+- [x] Add Socket.IO integration tests with at least three clients.
+- [x] Test unauthorized access, message persistence and room-membership enforcement.
+- [x] Test direct chats, group chats, multiple sockets and reconnections.
+- [x] Document environment variables, local setup and test commands.
 
 ### V1 exit criteria
 

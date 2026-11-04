@@ -276,13 +276,13 @@ export class MessageGateway implements OnGatewayInit {
                 message
             };
         } catch(error) {
-            this.logger.error('[WS] message:send failed:', error);
             if(error instanceof HttpException) {
                 return {
                     ok: false,
                     error: error.message
                 };
             }
+            this.logger.error('[WS] message:send failed:', error);
             return {
                 ok: false,
                 error: 'Unable to send message',
