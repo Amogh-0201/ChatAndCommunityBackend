@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: chat_community_load
+      POSTGRES_USER: load_test
+      POSTGRES_PASSWORD: load_test_only_password
+    ports:
+      - "127.0.0.1:5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U load_test -d chat_community_load"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - loadtest_db_data:/var/lib/postgresql/data
+  
+  api:
+    build: .
+    environment:
+      DATABASE_URL: "postgresql://load_test:load_test_only_password@db:5432/chat_community_load?schema=public"
+      JWT_ACCESS_SECRET: "local-load-test-only-change-this-secret"
+      JWT_ISSUER: "chat-community-load-test"
+      JWT_AUDIENCE: "chat-community-load-test"
+      PORT: "3000"
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  loadtest_db_data:
