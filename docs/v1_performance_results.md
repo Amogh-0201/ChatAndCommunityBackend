@@ -1,43 +1,69 @@
 # V1 Performance Test Results
 
-## Summary
+## Executive summary
 
-Registration requests completed successfully in all reported runs: k6 recorded
-zero failed HTTP requests and every registration check received HTTP 201.
-However, throughput stayed close to 20 requests per second as virtual-user (VU)
-concurrency increased, while response times rose substantially. The higher
-concurrency runs therefore demonstrate that the API continued returning
-successful responses during these tests, but not that it handled that load with
-acceptable latency or that it can sustain the same performance in production.
+These are exploratory local k6 runs of `POST /auth/register` and
+`POST /auth/login`. Both endpoints maintained roughly 19–20 completed
+requests/second as virtual-user (VU) concurrency increased, while latency
+became very high. Registration had no failed requests in the recorded runs.
+Login passed all checks at 50 VUs, but returned HTTP 500 errors at higher
+concurrency in the 200-VU stress and 400-VU spike runs.
+
+The login server logs identify Prisma error `P2028` while starting the
+transaction that creates an auth session and refresh token. This is evidence
+that these login failures occurred in the session-creation transaction path.
+It does not, by itself, establish whether the underlying constraint was the
+database connection pool, database capacity, or another transaction-start
+resource limit.
+
+| Route / profile | Peak VUs | Requests | Throughput | HTTP failures | Check success | Avg latency | p95 | Max |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Register load, 20 VUs | 20 | 605 | 19.43 req/s | 0 (0%) | 100% | 515 ms | 1.11 s | 1.44 s |
+| Register load, 40 VUs | 40 | 635 | 19.97 req/s | 0 (0%) | 100% | 1.00 s | 1.84 s | 1.92 s |
+| Register load, 50 VUs | 50 | 658 | 20.40 req/s | 0 (0%) | 100% | 1.22 s | 2.31 s | 2.43 s |
+| Register stress | 200 | 1,724 | 20.33 req/s | 0 (0%) | 100% | 4.26 s | 9.54 s | 20.24 s |
+| Register spike | 400 | 876 | 19.51 req/s | 0 (0%) | 100% | 8.89 s | 19.32 s | 29.7 s |
+| Login load, 50 VUs | 50 | 636 | 19.74 req/s | 0 (0%) | 100% | 1.26 s | 2.30 s | 2.39 s |
+| Login stress | 200 | 1,671 | 19.63 req/s | 6 (0.35%) | 99.64% | 4.40 s | 9.68 s | 51.45 s |
+| Login spike | 400 | 878 | 19.46 req/s | 3 (0.34%) | 99.65% | 8.85 s | 19.37 s | 29.88 s |
+| Login spike variant | 350 | 815 | 19.36 req/s | 0 (0%) | 100% | 7.55 s | 16.72 s | 26.81 s |
+
+`Peak VUs` is the configured maximum concurrency, not the number of users or
+requests served simultaneously throughout the whole run. VUs are concurrent
+clients, not requests per second. As response time increases, each VU completes
+fewer iterations, so throughput and latency need to be considered together.
+All test durations were short and the environment's CPU, memory, and database
+connection limits were not recorded.
 
 ## Test scope and interpretation
 
-- **Endpoint:** `POST /auth/register`
-- **Operation:** create a user and return an authentication response
-- **Load generator:** k6
-- **Environment:** local database/API test; detailed machine and container
-  resource specifications were not recorded
-- **Thresholds:** disabled for these exploratory runs. The HTTP 201 check was
-  still active; removing k6 thresholds means these results were collected
-  without latency/failure pass criteria.
+- **Load generator:** k6.
+- **Registration:** sends newly generated accounts to `POST /auth/register`.
+- **Login:** uses the 1,000 seeded accounts and sends `POST /auth/login`.
+- **Checks:** registration checks HTTP 201; login checks HTTP 200, expected
+  username, and access/refresh tokens.
+- **Thresholds:** disabled for these exploratory runs. Checks and the
+  `http_req_failed` metric still report whether requests succeeded; thresholds
+  only determine whether k6 marks the run as passing or failing against limits.
+- **Data effects:** registration creates user records. Each successful login
+  creates a session and refresh-token record. Use an isolated test database.
 
-Registration is a write-heavy operation that also performs password hashing.
-Its results should not be treated as a general capacity measurement for every
-API endpoint. VUs are concurrent clients, not requests per second: as response
-time increases, each VU completes fewer iterations. The observed RPS and
-latencies should be considered together.
+Registration performs password hashing and writes a user plus session/token
+records. Login reads the user, verifies the password hash, and writes session
+and refresh-token records. The endpoints share infrastructure but stress
+different code paths, so one route's result should not be used as a substitute
+for testing the other.
 
-## Results
+## Registration results
 
-| Profile / run | Configured load | Requests | Throughput | Failed HTTP requests | HTTP 201 checks | Avg latency | Median | p90 | p95 | Max |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Load | 20 VUs, 30s | 605 | 19.43 req/s | 0 / 605 (0%) | 605 / 605 (100%) | 515.33 ms | 485.45 ms | 863.99 ms | 1.11 s | 1.44 s |
-| Load | 40 VUs, 30s | 635 | 19.97 req/s | 0 / 635 (0%) | 635 / 635 (100%) | 1.00 s | 956.4 ms | 1.78 s | 1.84 s | 1.92 s |
-| Load | 50 VUs, 30s | 658 | 20.40 req/s | 0 / 658 (0%) | 658 / 658 (100%) | 1.22 s | 1.22 s | 2.14 s | 2.31 s | 2.43 s |
-| Stress | Staged ramp to 200 VUs; stages listed below | 1,724 | 20.33 req/s | 0 / 1,724 (0%) | 1,724 / 1,724 (100%) | 4.26 s | 3.78 s | 8.92 s | 9.54 s | 20.24 s |
-| Spike | Brief spike to 400 VUs; stages listed below | 876 | 19.51 req/s | 0 / 876 (0%) | 876 / 876 (100%) | 8.89 s | 7.94 s | 19.28 s | 19.32 s | 29.7 s |
+All recorded registration requests returned HTTP 201. Throughput stayed around
+19.4–20.4 requests/second across 20 to 400 peak VUs, while p95 latency rose
+from 1.11 seconds at 20 VUs to 19.32 seconds at 400 VUs. This suggests the
+tested setup reached a throughput plateau and queued additional work rather
+than scaling throughput with concurrency. It is successful completion, but not
+evidence of acceptable latency at high concurrency.
 
-### Stress stages
+The stress stages were:
 
 ```js
 [
@@ -50,7 +76,7 @@ latencies should be considered together.
 ]
 ```
 
-### Spike stages
+The spike stages were:
 
 ```js
 [
@@ -60,58 +86,59 @@ latencies should be considered together.
 ]
 ```
 
-The reported stress run completed 1,724 iterations in about 1m25s. The spike
-run completed 876 iterations; its scenario stages total 32 seconds. k6's
-reported maximum VUs were 200 and 400 respectively.
+## Login results and observed issue
 
-## Assessment
+The 50-VU, 30-second login load run passed all 636 checks with no failed
+requests. At higher concurrency, the stress run had 6 HTTP 500 failures out of
+1,671 requests (0.35%), and the 400-VU spike had 3 HTTP 500 failures out of
+878 (0.34%). The associated API logs report Prisma `P2028`:
+“Unable to start a transaction in the given time,” originating from
+`AuthService.createTokenPair` while creating the session and refresh token.
 
-The encouraging result is that every request in these samples completed with
-HTTP 201; there were no observed HTTP failures. The concerning result is that
-throughput remained around 19.4–20.4 registrations per second across all runs,
-even as concurrency rose. At the same time, p95 latency increased from 1.11s
-at 20 VUs to 2.31s at 50 VUs, 9.54s in the stress run, and 19.32s in the spike
-run. The spike's slowest request took 29.7s.
+The stress run's p95 was 9.68 seconds and its maximum request time was 51.45
+seconds. The spike run's p95 was 19.37 seconds. A separate spike variant peaked
+at 350 VUs and had no failed requests in 815 requests, but still had 7.55
+seconds average latency and 16.72 seconds p95. That single successful sample
+does not establish 350 VUs as a safe or stable capacity limit; the latency
+remained high, and the run was short.
 
-This pattern is consistent with a bottleneck or queueing under higher
-concurrency: the service kept responding, but additional clients mostly waited
-longer rather than increasing completed work per second. It is not possible to
-identify the limiting component from these results alone. Password-hash CPU
-cost, application CPU, database connection capacity, database performance,
-container limits, and the load generator are all worth measuring before
-choosing an optimization.
+Taken together, the login evidence indicates that the API can complete many
+requests at these loads but is operating near a throughput ceiling with long
+waits, and transaction-start failures appear in the 200- and 400-VU samples.
+The logs identify the failing operation, but the available output does not
+prove which resource is saturated. Investigate API/database CPU and memory,
+PostgreSQL active connections, adapter pool settings, and transaction wait
+behavior before deciding on a code or configuration change. Simply extending
+the transaction wait can make callers wait longer without increasing
+throughput.
 
-So, **the server handled the tested requests in the sense that all returned
-successfully, but the high-concurrency results do not show that it handled the
-load efficiently**. Whether these latencies are acceptable depends on the
-intended use; multi-second to tens-of-seconds registration responses would
-usually be poor user experience.
+## Reproducibility and next comparisons
 
-These are short exploratory runs, not a proven maximum-capacity or
-production-readiness result. A zero failure count in a finite test does not
-guarantee that failures will not occur at longer duration, with more traffic,
-or under different conditions.
+- The [register load script](../k6_tests/auth_service/register/register_user_load.js)
+  currently targets 50 VUs for 30 seconds; the reported 20- and 40-VU runs
+  were separate runs with a changed target.
+- The [register stress](../k6_tests/auth_service/register/register_user_stress.js)
+  and [register spike](../k6_tests/auth_service/register/register_user_spike.js)
+  scripts contain their recorded profiles.
+- The [login load](../k6_tests/auth_service/login/login_user_load.js),
+  [login stress](../k6_tests/auth_service/login/login_user_stress.js), and
+  [login spike](../k6_tests/auth_service/login/login_user_spike.js) scripts
+  contain the login profiles. The 350-VU spike is a separate variant and is
+  not the current 400-VU spike configuration.
+- Login selects accounts from the 1,000-user data set and may reuse them over
+  repeated iterations; successful requests accumulate auth-session and
+  refresh-token rows. Registration creates new users and also adds session
+  data.
+- For comparable future runs, record API/database CPU and memory limits,
+  PostgreSQL connection count, k6 version and host, database state, run
+  duration, and script revision. Repeat each profile and compare throughput,
+  p95/max latency, and failure rates.
 
-## Reproducibility notes
+These short local tests are not a production-readiness assessment or a precise
+maximum-capacity measurement. Results can differ with hardware, runtime
+configuration, database state, test duration, and load-generator capacity.
 
-- The load results include separate 20-, 40-, and 50-VU runs. The checked-in
-  [load script](../k6_tests/auth_service/register/register_user_load.js)
-  currently targets 50 VUs in a 30-second stage. To reproduce the lower-load
-  runs, change that stage's `target` and run each value separately.
-- The [stress script](../k6_tests/auth_service/register/register_user_stress.js)
-  and [spike script](../k6_tests/auth_service/register/register_user_spike.js)
-  contain the stages recorded above.
-- The [shared test helper](../k6_tests/auth_service/register/register_common.js)
-  creates unique accounts. These tests add rows to the test database; use only
-  an isolated database and account for accumulated test data when repeating
-  runs.
-- For meaningful comparisons, record the API and database resource limits,
-  machine/container specifications, k6 version and machine, exact script
-  revision, database state, and run ID. Repeat runs under the same conditions
-  and compare latency percentiles and throughput, not only the VU count or
-  success percentage.
-
-## Raw k6 output
+## Raw registration results
 
 ### Load test — 20 VUs for 30s
 
@@ -201,4 +228,117 @@ vus............................: 28     min=1        max=400
 vus_max........................: 400    min=400      max=400
 data_received..................: 891 kB 20 kB/s
 data_sent......................: 224 kB 5.0 kB/s
+```
+
+## Raw login results
+
+The excerpts below retain the key k6 metrics and the observed server error.
+
+### Login load — 50 VUs for 30s
+
+```text
+checks_total.......: 636     19.735376/s
+checks_succeeded...: 100.00% 636 out of 636
+checks_failed......: 0.00%   0 out of 636
+http_req_duration..: avg=1.26s min=76.41ms med=1.27s max=2.39s p(90)=2.22s p(95)=2.3s
+http_req_failed....: 0.00%  0 out of 636
+http_reqs..........: 636    19.735376/s
+iterations.........: 636    19.735376/s
+vus................: 8      min=2        max=49
+vus_max............: 50     min=50       max=50
+data_received......: 642 kB 20 kB/s
+data_sent..........: 122 kB 3.8 kB/s
+```
+
+### Login stress — ramp to 200 VUs
+
+```text
+[
+  { duration: '15s', target: 20 },
+  { duration: '15s', target: 50 },
+  { duration: '15s', target: 100 },
+  { duration: '15s', target: 150 },
+  { duration: '10s', target: 200 },
+  { duration: '10s', target: 0 },
+]
+```
+
+```text
+checks_total.......: 1671   19.627805/s
+checks_succeeded...: 99.64% 1665 out of 1671
+checks_failed......: 0.35%  6 out of 1671
+http_req_duration..: avg=4.4s min=75.49ms med=4.03s max=51.45s p(90)=9.09s p(95)=9.68s
+http_req_failed....: 0.35%  6 out of 1671
+http_reqs..........: 1671   19.627805/s
+iterations.........: 1671   19.627805/s
+vus................: 9      min=1         max=200
+vus_max............: 200    min=200       max=200
+data_received......: 1.7 MB 20 kB/s
+data_sent..........: 319 kB 3.7 kB/s
+```
+
+Observed application error:
+
+```text
+PrismaClientKnownRequestError: Transaction API error:
+Unable to start a transaction in the given time.
+code: P2028
+location: AuthService.createTokenPair
+```
+
+The k6 failure log listed six HTTP 500 responses. The complete stack trace is
+available in the API container logs.
+
+### Login spike — peak 400 VUs
+
+```text
+[
+  { duration: '15s', target: 5 },
+  { duration: '2s', target: 400 },
+  { duration: '15s', target: 5 },
+]
+```
+
+```text
+checks_total.......: 878    19.46149/s
+checks_succeeded...: 99.65% 875 out of 878
+checks_failed......: 0.34%  3 out of 878
+http_req_duration..: avg=8.85s min=68.85ms med=7.93s max=29.88s p(90)=19.32s p(95)=19.37s
+http_req_failed....: 0.34%  3 out of 878
+http_reqs..........: 878    19.46149/s
+iterations.........: 878    19.46149/s
+vus................: 12     min=1        max=400
+vus_max............: 400    min=400      max=400
+data_received......: 884 kB 20 kB/s
+data_sent..........: 168 kB 3.7 kB/s
+```
+
+The API logs again reported Prisma `P2028` while starting the transaction in
+`AuthService.createTokenPair`; k6 logged three HTTP 500 responses.
+
+### Login spike variant — peak 350 VUs
+
+This was a separate run with the same shape as the spike profile, but its peak
+target was 350 VUs.
+
+```text
+[
+  { duration: '15s', target: 5 },
+  { duration: '2s', target: 350 },
+  { duration: '15s', target: 5 },
+]
+```
+
+```text
+checks_total.......: 815     19.360373/s
+checks_succeeded...: 100.00% 815 out of 815
+checks_failed......: 0.00%   0 out of 815
+http_req_duration..: avg=7.55s min=70.07ms med=6.62s max=26.81s p(90)=16.68s p(95)=16.72s
+http_req_failed....: 0.00%  0 out of 815
+http_reqs..........: 815    19.360373/s
+iterations.........: 815    19.360373/s
+vus................: 11     min=1        max=350
+vus_max............: 350    min=350      max=350
+data_received......: 822 kB 20 kB/s
+data_sent..........: 156 kB 3.7 kB/s
 ```
