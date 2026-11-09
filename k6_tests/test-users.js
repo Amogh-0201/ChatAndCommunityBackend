@@ -1,6 +1,6 @@
 const password = 'LoadTest123!';
 
-export const testUsers = Array.from({ length: 1000 }, (_, index) => {
+export const testUsers = Array.from({ length: 50_000 }, (_, index) => {
   const suffix = String(index + 1).padStart(3, '0');
 
   return {

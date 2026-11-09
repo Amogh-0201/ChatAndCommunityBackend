@@ -60,3 +60,8 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 /src/generated/prisma
+
+# Local authentication tokens used by k6 performance tests
+/scripts/.auth-token-pool*.json
+/scripts/.auth-token-pool*.json.*
+/scripts/.auth-token-pool.json.lock

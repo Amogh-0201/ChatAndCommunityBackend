@@ -1,3 +1,5 @@
+import { mkdir, open, rename, unlink, writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import { testUsers } from '../k6_tests/test-users.js';
 
 const baseUrl = (process.env.BASE_URL || 'http://localhost:3000').replace(
@@ -6,7 +8,12 @@ const baseUrl = (process.env.BASE_URL || 'http://localhost:3000').replace(
 );
 const userCount = Number(process.env.USER_COUNT || testUsers.length);
 const concurrency = Number(process.env.CONCURRENCY || 5);
+const tokenPoolPath = path.resolve(
+  process.env.TOKEN_POOL_FILE || 'scripts/.auth-token-pool.json',
+);
+const tokenPoolLockPath = `${tokenPoolPath}.lock`;
 const confirmation = 'I_CONFIRMED_THIS_IS_THE_ISOLATED_TEST_DATABASE';
+const saveInterval = 500;
 
 if (process.env.SEED_TEST_DATABASE !== confirmation) {
   throw new Error(
@@ -36,9 +43,25 @@ if (!Number.isInteger(concurrency) || concurrency < 1 || concurrency > 50) {
   throw new Error('CONCURRENCY must be an integer from 1 to 50.');
 }
 
+await mkdir(path.dirname(tokenPoolPath), { recursive: true });
+
+let tokenPoolLock;
+try {
+  tokenPoolLock = await open(tokenPoolLockPath, 'wx');
+} catch (error) {
+  if (error.code === 'EEXIST') {
+    throw new Error(
+      `Another token-pool operation may be running (lock file: ${tokenPoolLockPath}).`,
+    );
+  }
+  throw error;
+}
+
 let nextUserIndex = 0;
 let registeredCount = 0;
 let firstError;
+const tokenPool = new Map();
+let tokenPoolWriteNumber = 0;
 
 async function registerUsers() {
   while (!firstError) {
@@ -76,7 +99,8 @@ async function registerUsers() {
     if (
       response.status !== 201 ||
       body?.user?.username !== user.username ||
-      !body?.accessToken
+      typeof body?.accessToken !== 'string' ||
+      typeof body?.refreshToken !== 'string'
     ) {
       const detail =
         typeof body?.message === 'string'
@@ -89,7 +113,26 @@ async function registerUsers() {
       return;
     }
 
+    tokenPool.set(user.username, {
+      username: user.username,
+      accessToken: body.accessToken,
+      refreshToken: body.refreshToken,
+      refreshTokenExpiresAt: body.refreshTokenExpiresAt,
+      sessionExpiresAt: body.sessionExpiresAt,
+    });
+
     registeredCount++;
+    if (registeredCount % saveInterval === 0) {
+      try {
+        await writeTokenPool([...tokenPool.values()]);
+      } catch (error) {
+        firstError = new Error(
+          `Could not persist the auth token pool: ${error.message}`,
+        );
+        return;
+      }
+    }
+
     if (registeredCount % 100 === 0 || registeredCount === userCount) {
       console.log(`Registered ${registeredCount}/${userCount} users.`);
     }
@@ -97,19 +140,46 @@ async function registerUsers() {
 }
 
 console.log(
-  `Registering ${userCount} test users at ${baseUrl} with concurrency ${concurrency}.`,
+  `Registering ${userCount} test users at ${baseUrl} with concurrency ${concurrency}; ` +
+    `saving auth tokens to ${tokenPoolPath}.`,
 );
 
-await Promise.all(
-  Array.from({ length: Math.min(concurrency, userCount) }, () =>
-    registerUsers(),
-  ),
-);
+try {
+  await writeTokenPool([]);
 
-if (firstError) {
-  throw new Error(
-    `${firstError.message} Successfully registered ${registeredCount} users before stopping.`,
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, userCount) }, () =>
+      registerUsers(),
+    ),
   );
+
+  await writeTokenPool([...tokenPool.values()]);
+
+  if (firstError) {
+    throw new Error(
+      `${firstError.message} Successfully registered ${registeredCount} users; ` +
+        `${tokenPool.size} token pairs were saved to ${tokenPoolPath}.`,
+    );
+  }
+
+  console.log(
+    `Finished: registered ${registeredCount} users and saved ${tokenPool.size} token pairs.`,
+  );
+} finally {
+  await tokenPoolLock.close();
+  await unlink(tokenPoolLockPath);
 }
 
-console.log(`Finished: registered ${registeredCount} test users.`);
+async function writeTokenPool(entries) {
+  const temporaryPath = `${tokenPoolPath}.${process.pid}.${tokenPoolWriteNumber++}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(entries, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+  });
+  try {
+    await rename(temporaryPath, tokenPoolPath);
+  } catch (error) {
+    await unlink(temporaryPath).catch(() => {});
+    throw error;
+  }
+}

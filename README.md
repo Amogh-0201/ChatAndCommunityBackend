@@ -140,6 +140,82 @@ The Docker workflow sets `DATABASE_URL` and `TEST_DATABASE_URL` only in its chil
 
 `npm run test` runs the unit tests; `npm run test:e2e` runs `test/app.e2e-spec.ts` and `test/phase-1.7.e2e-spec.ts` against the dedicated database. The integration suite covers registration/login, protected REST routes, user and conversation APIs, three authenticated users, direct and group messaging, membership denials, server-derived sender identity, persisted message history, a second socket for one user, reconnecting a client, and rejecting a socket without a token. The suite uses Supertest and the existing Socket.IO client to verify correctness; it is not a load benchmark. k6 remains a good fit for the planned V5 load/performance scenarios against a separately running server.
 
+#### Auth refresh performance tests
+
+The local Docker Compose database can be reset by removing its named volume.
+This permanently deletes all data in that local database. From the repository
+root, run:
+
+```powershell
+docker compose down -v
+docker compose up -d --build
+docker compose ps
+```
+
+The API container applies Prisma migrations during startup. Wait until both
+containers are healthy/running before seeding. The test-user generator
+provides 50,000 accounts; seed them with:
+
+```powershell
+$env:USER_COUNT = "50000"
+$env:CONCURRENCY = "5"
+$env:SEED_TEST_DATABASE = "I_CONFIRMED_THIS_IS_THE_ISOLATED_TEST_DATABASE"
+node scripts/seed-k6-users.mjs
+Remove-Item Env:USER_COUNT, Env:CONCURRENCY, Env:SEED_TEST_DATABASE
+```
+
+The seed script sends registration requests and saves each new user's access
+and refresh tokens to `scripts/.auth-token-pool.json` as it goes. It checkpoints
+every 500 successful registrations and saves again at the end, so a failed seed
+still leaves a pool for the users that registered successfully. A seed run
+starts a new pool, replacing any previous pool file. This can take a while at
+the default concurrency; increase `CONCURRENCY` cautiously if the local API
+and database can handle it.
+
+The token pool file is git-ignored and contains live credentials, so keep it
+local. `BASE_URL` defaults to `http://localhost:3000` and is restricted to
+localhost; `CONCURRENCY` defaults to 5 and can be set from 1 to 50.
+
+To refresh a chosen number of saved accounts and persist their new tokens:
+
+```powershell
+node scripts/auth-token-pool.mjs refresh 10000
+```
+
+If the count is omitted, the command prompts for it. If a saved refresh token
+is rejected, the command logs that account in and saves the new token pair.
+After a k6 run, refresh the pool before reusing it: k6 only retains rotated
+tokens in memory.
+
+Run the 200-VU, 30-second refresh profile:
+
+```powershell
+k6 run k6_tests/auth_service/refresh/refresh_user_load.js
+k6 run k6_tests/auth_service/refresh/refresh_user_stress.js
+k6 run k6_tests/auth_service/refresh/refresh_user_spike.js
+```
+
+Each VU owns a disjoint shard of the token pool. With 50,000 accounts and 200
+VUs, each VU gets 250 users. On every iteration it picks the next user in its
+shard (wrapping with modulo), sends that user's current refresh token, and
+overwrites the access/refresh tokens in its VU-local map with the rotated pair
+from the response. VUs don't share refresh tokens, and the same user can be
+refreshed repeatedly without exhausting the account pool.
+
+The `logout` command revokes the saved sessions and removes the local pool
+file:
+
+```powershell
+node scripts/auth-token-pool.mjs logout
+```
+
+Logout is not included as a load profile: each logout ends its session, so
+repeated logout load would need to create a new session for every request and
+would mix login cost into the result. The route should be covered by functional
+tests; add a load profile if measuring logout capacity becomes a specific goal.
+Refresh tokens are single-use, so do not run multiple refresh tests against
+the same accounts concurrently.
+
 ### Implemented API reference
 
 All REST routes below require `Authorization: Bearer <accessToken>` unless marked **Public**. Requests with DTOs are validated, transformed, and reject unknown fields.
