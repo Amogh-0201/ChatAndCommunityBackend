@@ -202,6 +202,20 @@ overwrites the access/refresh tokens in its VU-local map with the rotated pair
 from the response. VUs don't share refresh tokens, and the same user can be
 refreshed repeatedly without exhausting the account pool.
 
+To stress `POST /auth/logout-all`, refresh the pool immediately before the
+test to ensure its 15-minute access tokens are current:
+
+```powershell
+node scripts/auth-token-pool.mjs refresh 11000
+k6 run k6_tests/auth_service/logout/logout_all_stress.js
+```
+
+Each account is used at most once because logout-all revokes that account's
+session. The stress profile ramps to 600 VUs over 25 seconds; with an 11,000
+entry pool it can issue up to 11,000 logout-all requests. This test invalidates
+the sessions in the pool, so refresh the pool again before running refresh
+tests or other tests that need those sessions.
+
 The `logout` command revokes the saved sessions and removes the local pool
 file:
 
@@ -209,10 +223,10 @@ file:
 node scripts/auth-token-pool.mjs logout
 ```
 
-Logout is not included as a load profile: each logout ends its session, so
-repeated logout load would need to create a new session for every request and
-would mix login cost into the result. The route should be covered by functional
-tests; add a load profile if measuring logout capacity becomes a specific goal.
+The single-session `POST /auth/logout` route is not included as a load profile:
+each logout ends its session, so repeated logout load would need to create a new
+session for every request and would mix login cost into the result. The
+`POST /auth/logout-all` stress test above instead uses each saved account once.
 Refresh tokens are single-use, so do not run multiple refresh tests against
 the same accounts concurrently.
 

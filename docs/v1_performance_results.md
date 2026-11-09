@@ -3,7 +3,7 @@
 ## Executive summary
 
 These are exploratory local k6 results for authentication registration,
-login, and refresh. The tests show two different throughput patterns:
+login, refresh, and logout-all. The tests show different throughput patterns:
 
 - **Registration and login** plateaued around 19–20 requests/second. Latency
   rose sharply as concurrency increased. Login also returned HTTP 500 errors
@@ -12,6 +12,11 @@ login, and refresh. The tests show two different throughput patterns:
   stayed around 252–268 requests/second across 50 to 1,000 configured peak VUs,
   while p95 latency rose from about 180 ms at 50 VUs to 5.29 seconds in the
   short 1,000-VU spike.
+- **Logout-all** at a 600-VU peak completed 2,963 HTTP requests, of which 538
+  (18.15%) returned HTTP 500. The API logs associate these failures with
+  Prisma `P2028` while starting the transaction in `AuthService.logoutAll`.
+  This was a transaction-start/server error, not an HTTP 401 authentication
+  failure.
 
 The login server errors were associated with Prisma `P2028` while starting the
 transaction that creates an auth session and refresh token. The logs locate
@@ -32,6 +37,7 @@ the failing operation, but do not establish which resource limit caused it.
 | Refresh load, 200 VUs / 30 s    |                 200 |    8,051 | 264.21 req/s |        0 (0%) |          100% |   378.90 ms |   688.71 ms |   783.73 ms |
 | Refresh stress, ramp to 600 VUs |                 600 |    6,413 | 252.67 req/s |        0 (0%) |          100% |      1.11 s |      2.15 s |      2.18 s |
 | Refresh spike, peak 1,000 VUs   |               1,000 |    3,327 | 252.02 req/s |        0 (0%) |          100% |      1.88 s |      5.29 s |      5.73 s |
+| Logout-all stress               |                 600 |    2,963 | 116.42 req/s | 538 (18.15%) |         81.84% |      2.41 s |      4.34 s |      4.52 s |
 
 Configured peak VUs represent the profile's target maximum, not the number of
 requests completed simultaneously. Throughput is completed HTTP requests per
@@ -42,15 +48,16 @@ throughput, and latency should be considered together.
 
 - **Load generator:** k6.
 - **Endpoints:** `POST /auth/register`, `POST /auth/login`, and
-  `POST /auth/refresh`.
+  `POST /auth/refresh`, and authenticated `POST /auth/logout-all`.
 - **Checks:** registration checks HTTP 201; login checks HTTP 200, expected
   username, and both tokens; refresh checks HTTP 200, expected username, and
-  a rotated refresh token.
+  a rotated refresh token; logout-all checks HTTP 200 and `{ "success": true }`.
 - **Thresholds:** no pass/fail performance thresholds were enabled. The check
   and HTTP failure metrics still report request outcomes.
 - **Database effects:** successful registration and login create auth
   sessions and refresh-token records. Refresh rotates the refresh-token record
-  on every successful request.
+  on every successful request. Logout-all revokes all active sessions and
+  refresh tokens for the authenticated user.
 - **Environment:** local Docker-based API/database and local k6 runs. CPU,
   memory, PostgreSQL connection count, and load-generator resource usage were
   not recorded.
@@ -118,6 +125,43 @@ endpoint alone is responsible for that difference: refresh has a different
 code path, and the tests were not run as a controlled, simultaneous comparison
 with resource telemetry.
 
+## Logout-all
+
+The logout-all stress profile ramped through 100, 200, 400, and 600 VUs, then
+back to 100 over 25 seconds. It made 2,963 HTTP requests: 2,425 succeeded and
+538 returned HTTP 500 (18.15% failure rate). Successful-request p95 latency
+was 4.35 seconds; overall p95 was 4.34 seconds. The API logs identify Prisma
+`P2028` (“Unable to start a transaction in the given time”) while starting the
+transaction in `AuthService.logoutAll`.
+
+This is the observed failure: the request reached the server but the server
+could not start the Prisma transaction in time. It is not evidence of an
+invalid or reused token; those would normally be rejected as HTTP 401. The
+same Prisma error code was seen in earlier high-concurrency login runs, but
+the evidence does not establish whether the common cause is the connection
+pool, database capacity, or another transaction-start resource limit.
+
+The test reported **1,831,742 k6 iterations**, but that is not the number of
+logout requests. In k6, an iteration counts one execution of the script's
+default function. The logout helper returns without sending HTTP when its
+calculated user index is outside the 11,000-entry token pool; k6 still counts
+those fast, empty executions as iterations. Only `http_reqs` (2,963 here)
+counts requests sent to the API. Therefore 1,831,742 iterations must not be
+reported as logout throughput or as successful logout operations. The
+`iterations/s` and `iteration_duration` figures are misleading for this run
+because most iterations did no work.
+The final k6 `✓` indicates that the scenario completed; it does not mean every
+check passed. No failure threshold was configured, and the 538 failed checks
+are still reflected in the results above.
+
+The `logout-all` test uses a saved account once because the route revokes that
+user's sessions. Its effective request count is limited by both the pool and
+the number of unique users the test reaches during the run. For a meaningful
+follow-up, stop counting empty iterations (or make VUs wait once the pool is
+exhausted), and report HTTP request metrics separately. Also capture API and
+database resource metrics while investigating the `P2028` transaction-start
+failures.
+
 ## Reproducibility and next steps
 
 - See the [registration load](../k6_tests/auth_service/register/register_user_load.js),
@@ -129,6 +173,8 @@ with resource telemetry.
 - See the [refresh load](../k6_tests/auth_service/refresh/refresh_user_load.js),
   [stress](../k6_tests/auth_service/refresh/refresh_user_stress.js), and
   [spike](../k6_tests/auth_service/refresh/refresh_user_spike.js) scripts.
+- See the [logout-all stress](../k6_tests/auth_service/logout/logout_all_stress.js)
+  script. It consumes one saved account session per request.
 - Refresh the saved token pool before each refresh run; refresh tokens are
   single-use and rotated tokens from k6 are not persisted to the pool file.
 - Repeat each profile and record API/database CPU and memory, PostgreSQL
@@ -193,3 +239,63 @@ http_req_failed....: 0.00%  0 out of 3327
 http_reqs..........: 3327    252.018485/s
 vus_max............: 1000
 ```
+
+### Logout all stress
+
+  stages: [
+    { duration: '5s', target: 100 },
+    { duration: '5s', target: 200 },
+    { duration: '5s', target: 400 },
+    { duration: '5s', target: 600 },
+    { duration: '5s', target: 100 },
+  ]
+
+ TOTAL RESULTS
+
+    checks_total.......: 2963   116.420154/s
+    checks_succeeded...: 81.84% 2425 out of 2963
+    checks_failed......: 18.15% 538 out of 2963
+
+    ✗ logout-all returns 200 and success
+      ↳  81% — ✓ 2425 / ✗ 538
+
+    HTTP
+    http_req_duration..............: avg=2.41s  min=13.38ms med=2.58s max=4.52s p(90)=4.14s p(95)=4.34s
+      { expected_response:true }...: avg=2.07s  min=13.38ms med=1.84s max=4.52s p(90)=3.88s p(95)=4.35s
+    http_req_failed................: 18.15%  538 out of 2963
+    http_reqs......................: 2963    116.420154/s
+
+    EXECUTION
+    iteration_duration.............: avg=4.04ms min=0s      med=0s    max=4.54s p(90)=0s    p(95)=537.69µs
+    iterations.....................: 1831742 71971.54451/s
+    vus............................: 285     min=19          max=600
+    vus_max........................: 600     min=600         max=600
+
+    NETWORK
+    data_received..................: 773 kB  30 kB/s
+    data_sent......................: 1.4 MB  54 kB/s
+
+
+
+
+running (25.5s), 000/600 VUs, 1831742 complete and 0 interrupted iterations
+default ✓ [======================================] 000/600 VUs  25s
+
+#### failure cause:
+ERRO[0023] Logout-all failed for loadtest_user_590: HTTP 500; error=none  source=console
+ERRO[0024] Logout-all failed for loadtest_user_593: HTTP 500; error=none  source=console
+ERRO[0023] Logout-all failed for loadtest_user_1033: HTTP 500; error=none  source=console
+ERRO[0024] Logout-all failed for loadtest_user_2011: HTTP 500; error=none  source=console
+
+logs in api:
+api-1  | [Nest] 78  - 11/09/2026, 4:15:19 PM   ERROR [ExceptionsHandler] PrismaClientKnownRequestError: Transaction API error: Unable to start a transaction in the given time.
+api-1  |     at #c (/app/node_modules/@prisma/client/runtime/client.js:57:14161)
+api-1  |     at yr.transaction (/app/node_modules/@prisma/client/runtime/client.js:58:1820)
+api-1  |     at async Proxy._transactionWithCallback (/app/node_modules/@prisma/client/runtime/client.js:99:4732)
+api-1  |     at async AuthService.logoutAll (/app/dist/modules/auth/auth.service.js:204:28)
+api-1  |     at async file:///app/node_modules/@nestjs/core/router/router-execution-context.js:68:62
+api-1  |     at async AuthController.logoutAll (file:///app/node_modules/@nestjs/core/router/router-proxy.js:6:17) {
+api-1  |   code: 'P2028',
+api-1  |   meta: {},
+api-1  |   clientVersion: '7.10.1'
+api-1  | }
