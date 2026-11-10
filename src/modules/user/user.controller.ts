@@ -18,8 +18,11 @@ export class UserController {
   constructor(private readonly userService: UserService) {}
 
   @Get()
-  findAll(@Query() paginationDto: PaginationDto) {
-    return this.userService.findAll(paginationDto);
+  findAll(
+    @Req() req: AuthenticatedRequeset,
+    @Query() paginationDto: PaginationDto
+  ) {
+    return this.userService.findAll(req.user.id, paginationDto);
   }
 
   @Get("me")

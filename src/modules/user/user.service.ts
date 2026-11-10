@@ -38,7 +38,7 @@ export class UserService {
         }
     }
 
-    async findAll( paginationDto: PaginationDto ) {
+    async findAll( id: string, paginationDto: PaginationDto ) {
         const page = paginationDto.page ?? 1;
         const limit = paginationDto.limit ?? 10;
 
@@ -47,6 +47,7 @@ export class UserService {
         const [users, totalUsers] = await Promise.all([
 
             this.prisma.user.findMany({
+                where: { id: { not: id } },
                 skip,
                 take: limit,
                 orderBy: [
@@ -61,7 +62,9 @@ export class UserService {
                 }
             }),
 
-            this.prisma.user.count()
+            this.prisma.user.count({
+                where: { id: { not: id } }       
+            })
         ]);
 
         return {

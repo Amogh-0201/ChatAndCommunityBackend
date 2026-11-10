@@ -183,6 +183,38 @@ the tests validate results against those accounts' generated profiles.
 The load, stress, and spike profiles peak at 450, 800, and 1,000 VUs.
 `BASE_URL` and `TOKEN_POOL_FILE` can be set for k6 if needed.
 
+#### Mixed user-service flows
+
+These scenarios combine authenticated user endpoints in one iteration. They
+use access tokens from the existing local token pool and do not call login,
+refresh, or logout, so authentication traffic and token rotation do not
+interfere with the user-service measurements. Prepare a current pool with at
+least 1,000 accounts before running the spike profiles:
+
+```powershell
+node scripts/auth-token-pool.mjs login 1000
+k6 run k6_tests/mixed_service/getme_updateuser_getme/getme_updateuser_getme_load.js
+k6 run k6_tests/mixed_service/getme_updateuser_getme/getme_updateuser_getme_stress.js
+k6 run k6_tests/mixed_service/getme_updateuser_getme/getme_updateuser_getme_spike.js
+k6 run k6_tests/mixed_service/findall_getme/findall_getme_load.js
+k6 run k6_tests/mixed_service/findall_getme/findall_getme_stress.js
+k6 run k6_tests/mixed_service/findall_getme/findall_getme_spike.js
+k6 run k6_tests/mixed_service/findall_getme_updateuser_getme/findall_getme_updateuser_getme_load.js
+k6 run k6_tests/mixed_service/findall_getme_updateuser_getme/findall_getme_updateuser_getme_stress.js
+k6 run k6_tests/mixed_service/findall_getme_updateuser_getme/findall_getme_updateuser_getme_spike.js
+```
+
+The flows are `GET /user/me` → `PATCH /user` → `GET /user/me`,
+`GET /user` → `GET /user/me`, and
+`GET /user` → `GET /user/me` → `PATCH /user` → `GET /user/me`. Each iteration
+uses the same pool account for every step and checks that profile data remains
+consistent. The update sends the account's existing name, exercising the
+update endpoint without changing seeded profile values. The load, stress, and
+spike profiles peak at 450, 800, and 1,000 VUs. One iteration generates three
+or four requests, so compare request counts and endpoint tags—not only VUs—
+when comparing these scenarios with single-endpoint tests. `BASE_URL` and
+`TOKEN_POOL_FILE` can be set for k6 as with the other user-service tests.
+
 #### Auth refresh performance tests
 
 The local Docker Compose database can be reset by removing its named volume.

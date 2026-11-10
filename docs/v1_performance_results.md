@@ -385,3 +385,86 @@ The stress stages were 5 s to 200, 5 s at 200, 5 s to 400, 5 s at 400,
 10 s to 800, 5 s at 800, then 10 s ramping down to 200 (45 s configured;
 k6 reported 45.2 s elapsed). The spike held 1,000 VUs for 2 seconds after a
 2-second ramp toward that target.
+
+
+## Mixed service
+
+### Test method and how to read the profiles
+
+These runs combine authenticated user-service endpoints in a single iteration.
+Each flow uses the same pooled account and access token for every request; no
+login, refresh, or logout requests are part of these measurements. The profile
+update submits the account's existing name, so it exercises `PATCH /user`
+without intentionally changing seeded profile data.
+
+The result tables report HTTP request throughput, as in the other service
+sections. Since each mixed iteration makes two, three, or four HTTP requests,
+request counts and throughput are not the same as completed flow iterations.
+HTTP request latency measures one request, while execution time per iteration
+covers the complete ordered sequence of requests in a flow. Both are reported
+below.
+All recorded mixed-service runs reported 100% successful checks and zero HTTP
+request failures. These are exploratory local results with no performance
+thresholds configured.
+
+### Find all users → Get me
+
+Each iteration fetches the first page from `GET /user?limit=50`, then requests
+`GET /user/me` for the same authenticated account. Checks validate the page
+metadata, exclude the current user from the returned page, and verify the
+profile matches the token identity.
+
+| Profile | VU target sequence | Elapsed | Requests | Throughput | Checks passed | HTTP failures | Avg latency | p95 latency | Max latency |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 31.0 s | 12,028 | 387.68 req/s | 100% | 0 (0%) | 867.33 ms | 1.21 s | 1.28 s |
+| Stress | Ramp/hold targets: 200, 200, 400, 400, 800, 800; then ramp down to 200 | 45.6 s | 17,168 | 376.78 req/s | 100% | 0 (0%) | 1.21 s | 2.04 s | 2.09 s |
+| Spike | Ramp to 200 (5 s), hold 200 (2 s), ramp to 1,000 (3 s), hold 1,000 (2 s), ramp down to 200 (5 s) | 18.0 s | 6,560 | 363.72 req/s | 100% | 0 (0%) | 1.49 s | 4.36 s | 6.05 s |
+
+| Profile | Request latency (min / median / max) | Execution time per iteration (avg / min / median / max) |
+| --- | --- | --- |
+| Load | 7.63 ms / 1.04 s / 1.28 s | 1.73 s / 23.48 ms / 2.07 s / 2.42 s |
+| Stress | 6.41 ms / 1.06 s / 2.09 s | 2.43 s / 25.26 ms / 2.21 s / 4.08 s |
+| Spike | 4.76 ms / 1.35 s / 6.05 s | 2.98 s / 17.99 ms / 2.71 s / 7.60 s |
+
+### Get me → Update user → Get me
+
+Each iteration reads the authenticated profile, updates the user's name to its
+current value with `PATCH /user`, then reads the profile again. Checks verify
+the profile before and after the update remains associated with the same user
+and retains the expected fields.
+
+| Profile | VU target sequence | Elapsed | Requests | Throughput | Checks passed | HTTP failures | Avg latency | p95 latency | Max latency |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 31.4 s | 14,610 | 465.10 req/s | 100% | 0 (0%) | 721.89 ms | 1.24 s | 1.39 s |
+| Stress | Ramp/hold targets: 200, 200, 400, 400, 800, 800; then ramp down to 200 | 45.8 s | 22,089 | 482.20 req/s | 100% | 0 (0%) | 956.41 ms | 1.65 s | 1.69 s |
+| Spike | Ramp to 200 (5 s), hold 200 (2 s), ramp to 1,000 (3 s), hold 1,000 (2 s), ramp down to 200 (5 s) | 18.8 s | 8,481 | 450.10 req/s | 100% | 0 (0%) | 1.22 s | 3.16 s | 5.34 s |
+
+| Profile | Request latency (min / median / max) | Execution time per iteration (avg / min / median / max) |
+| --- | --- | --- |
+| Load | 5.78 ms / 850.70 ms / 1.39 s | 2.16 s / 26.68 ms / 2.53 s / 3.31 s |
+| Stress | 5.31 ms / 857.53 ms / 1.69 s | 2.86 s / 24.65 ms / 2.50 s / 4.95 s |
+| Spike | 3.78 ms / 1.08 s / 5.34 s | 3.67 s / 18 ms / 3.43 s / 8.38 s |
+
+### Find all users → Get me → Update user → Get me
+
+Each iteration fetches the first page of users, reads the authenticated
+profile, updates the user's name to its current value, and reads the profile
+again. The checks cover the list response and profile consistency throughout
+the sequence.
+
+| Profile | VU target sequence | Elapsed | Requests | Throughput | Checks passed | HTTP failures | Avg latency | p95 latency | Max latency |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 31.9 s | 12,840 | 402.54 req/s | 100% | 0 (0%) | 833.70 ms | 1.30 s | 1.56 s |
+| Stress | Ramp/hold targets: 200, 200, 400, 400, 800, 800; then ramp down to 200 | 46.3 s | 18,936 | 408.79 req/s | 100% | 0 (0%) | 1.14 s | 2.03 s | 2.30 s |
+| Spike | Ramp to 200 (5 s), hold 200 (2 s), ramp to 1,000 (3 s), hold 1,000 (2 s), ramp down to 200 (5 s) | 20.9 s | 8,272 | 395.64 req/s | 100% | 0 (0%) | 1.48 s | 3.59 s | 5.91 s |
+
+| Profile | Request latency (min / median / max) | Execution time per iteration (avg / min / median / max) |
+| --- | --- | --- |
+| Load | 4.23 ms / 987.40 ms / 1.56 s | 3.33 s / 41.19 ms / 3.87 s / 5.01 s |
+| Stress | 5.95 ms / 1.04 s / 2.30 s | 4.57 s / 51.05 ms / 4.31 s / 8.00 s |
+| Spike | 10.22 ms / 1.43 s / 5.91 s | 5.92 s / 83.02 ms / 6.33 s / 10.91 s |
+
+The recorded spike runs used a 2-second hold at 200 VUs before a 3-second
+ramp to 1,000 VUs. The current mixed-service spike scripts use a different
+stage sequence, so treat these as results for the recorded profiles rather
+than an exact measurement of the current script configuration.
