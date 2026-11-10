@@ -1,6 +1,8 @@
 # V1 Performance Test Results
 
-## Executive summary
+## Authentication service
+
+### Executive summary
 
 These are exploratory local k6 results for authentication registration,
 login, refresh, and logout-all. The tests show different throughput patterns:
@@ -44,7 +46,7 @@ requests completed simultaneously. Throughput is completed HTTP requests per
 second. As latency rises, each VU completes fewer iterations, so concurrency,
 throughput, and latency should be considered together.
 
-## Test scope and conditions
+### Test scope and conditions
 
 - **Load generator:** k6.
 - **Endpoints:** `POST /auth/register`, `POST /auth/login`, and
@@ -66,7 +68,7 @@ These runs are exploratory samples, not a production-readiness assessment or
 a precise capacity benchmark. Run duration, machine load, database state, and
 runtime configuration can materially affect the results.
 
-## Registration
+### Registration
 
 All recorded registration requests returned HTTP 201. Throughput stayed
 between 19.43 and 20.40 req/s as configured peak concurrency increased from
@@ -79,7 +81,7 @@ The 200-VU stress profile used stages of 20, 50, 100, 150, and 200 VUs, followed
 by ramp-down. The 400-VU spike profile ramped from 5 to 400 VUs in 2 seconds,
 then returned to 5 VUs.
 
-## Login
+### Login
 
 The 50-VU login load run passed all 636 checks. The 200-VU stress run returned
 6 HTTP 500 responses out of 1,671 requests (0.35%); the 400-VU spike returned
@@ -99,7 +101,7 @@ adapter pool settings, and transaction wait behavior before changing timeout
 configuration. Increasing a wait limit alone can increase latency without
 increasing throughput.
 
-## Refresh
+### Refresh
 
 All four recorded refresh runs completed with 100% successful checks and no
 HTTP failures. Throughput was similar—about 252–268 req/s—from the 50-VU load
@@ -125,7 +127,7 @@ endpoint alone is responsible for that difference: refresh has a different
 code path, and the tests were not run as a controlled, simultaneous comparison
 with resource telemetry.
 
-## Logout-all
+### Logout-all
 
 The logout-all stress profile ramped through 100, 200, 400, and 600 VUs, then
 back to 100 over 25 seconds. It made 2,963 HTTP requests: 2,425 succeeded and
@@ -162,7 +164,7 @@ exhausted), and report HTTP request metrics separately. Also capture API and
 database resource metrics while investigating the `P2028` transaction-start
 failures.
 
-## Reproducibility and next steps
+### Reproducibility and next steps
 
 - See the [registration load](../k6_tests/auth_service/register/register_user_load.js),
   [stress](../k6_tests/auth_service/register/register_user_stress.js), and
@@ -183,12 +185,12 @@ failures.
 - Compare throughput, p95/max latency, and failure rate. Use longer steady
   stages in addition to brief spikes when evaluating sustained capacity.
 
-## Recorded raw refresh summaries
+### Recorded raw refresh summaries
 
 The following summaries preserve the key k6 metrics from the recorded refresh
 runs.
 
-### Refresh load — 50 VUs for 30 seconds
+#### Refresh load — 50 VUs for 30 seconds
 
 ```text
 checks_total.......: 8058    267.565643/s
@@ -200,7 +202,7 @@ http_reqs..........: 8058    267.565643/s
 vus_max............: 50
 ```
 
-### Refresh load — 200 VUs for 30 seconds
+#### Refresh load — 200 VUs for 30 seconds
 
 ```text
 checks_total.......: 8051    264.206031/s
@@ -212,7 +214,7 @@ http_reqs..........: 8051    264.206031/s
 vus_max............: 200
 ```
 
-### Refresh stress — ramp to 600 VUs
+#### Refresh stress — ramp to 600 VUs
 
 ```text
 stages:
@@ -226,7 +228,7 @@ http_reqs..........: 6413    252.669128/s
 vus_max............: 600
 ```
 
-### Refresh spike — peak 1,000 VUs
+#### Refresh spike — peak 1,000 VUs
 
 ```text
 stages:
@@ -240,7 +242,7 @@ http_reqs..........: 3327    252.018485/s
 vus_max............: 1000
 ```
 
-### Logout all stress
+#### Logout all stress
 
   stages: [
     { duration: '5s', target: 100 },
@@ -281,7 +283,7 @@ vus_max............: 1000
 running (25.5s), 000/600 VUs, 1831742 complete and 0 interrupted iterations
 default ✓ [======================================] 000/600 VUs  25s
 
-#### failure cause:
+##### Failure cause
 ERRO[0023] Logout-all failed for loadtest_user_590: HTTP 500; error=none  source=console
 ERRO[0024] Logout-all failed for loadtest_user_593: HTTP 500; error=none  source=console
 ERRO[0023] Logout-all failed for loadtest_user_1033: HTTP 500; error=none  source=console
@@ -299,3 +301,252 @@ api-1  |   code: 'P2028',
 api-1  |   meta: {},
 api-1  |   clientVersion: '7.10.1'
 api-1  | }
+
+
+## User service
+
+### Find all users
+
+The authenticated `GET /user?limit=100` test returned a valid first page in all
+six recorded runs. No HTTP failures or failed checks were reported. Throughput
+was approximately 367–369 requests/second in the 100–300 VU load runs, then
+declined slightly at 450 VUs and in the higher-peak stress and spike runs.
+Latency increased with concurrency: p95 rose from 244 ms at 100 VUs to 1.15 s
+at 450 VUs, 2.13 s in the 800-VU stress profile, and 5.18 s in the 1,000-VU
+spike.
+
+| Profile | Configured peak VUs | Duration | Requests | Throughput | Checks passed | HTTP failures | Avg latency | p95 latency | Max latency |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 100 | 30 s | 11,129 | 369.08 req/s | 100% | 0 (0%) | 134.99 ms | 244.03 ms | 296.06 ms |
+| Load | 200 | 30 s | 11,205 | 369.75 req/s | 100% | 0 (0%) | 269.99 ms | 500.02 ms | 613.49 ms |
+| Load | 300 | 30 s | 11,242 | 367.47 req/s | 100% | 0 (0%) | 409.03 ms | 795.97 ms | 888.74 ms |
+| Load | 450 | 30 s | 11,040 | 359.10 req/s | 100% | 0 (0%) | 627.65 ms | 1.15 s | 1.22 s |
+| Stress | 800 | 35 s | 12,396 | 350.41 req/s | 100% | 0 (0%) | 1.12 s | 2.13 s | 2.19 s |
+| Spike | 1,000 | 12 s | 4,249 | 330.88 req/s | 100% | 0 (0%) | 1.53 s | 5.18 s | 5.63 s |
+
+The load profiles were each run for 30 seconds. The stress profile used
+5-second stages targeting 100, 200, and 400 VUs, then 10 seconds at 800 VUs
+and 10 seconds at 200 VUs (35 seconds total). The spike profile targeted
+200 VUs for 5 seconds, 1,000 VUs for 2 seconds, then 200 VUs for 5 seconds
+(12 seconds total). The 1,000-VU value is a brief target peak, not sustained
+1,000-VU load.
+
+All runs passed the check that verifies an HTTP 200 response and the expected
+first-page data and pagination metadata. These are exploratory local results;
+they do not establish production capacity. Compare them with the auth results
+only as separate endpoint workloads.
+
+#### Raw k6 output
+
+##### Load — 100 VUs for 30 seconds
+```text
+TOTAL RESULTS
+
+    checks_total.......: 11129   369.078046/s
+    checks_succeeded...: 100.00% 11129 out of 11129
+    checks_failed......: 0.00%   0 out of 11129
+
+    ✓ find-all-users returns a valid first page
+
+    HTTP
+    http_req_duration..............: avg=134.99ms min=6.01ms med=134.5ms  max=296.06ms p(90)=236.52ms p(95)=244.03ms
+      { expected_response:true }...: avg=134.99ms min=6.01ms med=134.5ms  max=296.06ms p(90)=236.52ms p(95)=244.03ms
+    http_req_failed................: 0.00%  0 out of 11129
+    http_reqs......................: 11129  369.078046/s
+
+    EXECUTION
+    iteration_duration.............: avg=135.47ms min=6.49ms med=134.97ms max=297.17ms p(90)=237.03ms p(95)=244.44ms
+    iterations.....................: 11129  369.078046/s
+    vus............................: 99     min=4          max=99
+    vus_max........................: 100    min=100        max=100
+
+    NETWORK
+    data_received..................: 86 MB  2.9 MB/s
+    data_sent......................: 4.9 MB 164 kB/s
+
+
+
+
+running (0m30.2s), 000/100 VUs, 11129 complete and 0 interrupted iterations
+default ✓ [======================================] 000/100 VUs  30s
+```
+
+##### Load — 200 VUs for 30 seconds
+```text
+  TOTAL RESULTS
+
+    checks_total.......: 11205   369.754545/s
+    checks_succeeded...: 100.00% 11205 out of 11205
+    checks_failed......: 0.00%   0 out of 11205
+
+    ✓ find-all-users returns a valid first page
+
+    HTTP
+    http_req_duration..............: avg=269.99ms min=6.27ms med=272.14ms max=613.49ms p(90)=473.12ms p(95)=500.02ms
+      { expected_response:true }...: avg=269.99ms min=6.27ms med=272.14ms max=613.49ms p(90)=473.12ms p(95)=500.02ms
+    http_req_failed................: 0.00%  0 out of 11205
+    http_reqs......................: 11205  369.754545/s
+
+    EXECUTION
+    iteration_duration.............: avg=270.48ms min=6.31ms med=272.68ms max=614.55ms p(90)=473.6ms  p(95)=500.56ms
+    iterations.....................: 11205  369.754545/s
+    vus............................: 199    min=7          max=199
+    vus_max........................: 200    min=200        max=200
+
+    NETWORK
+    data_received..................: 87 MB  2.9 MB/s
+    data_sent......................: 5.0 MB 164 kB/s
+
+
+
+
+running (0m30.3s), 000/200 VUs, 11205 complete and 0 interrupted iterations
+default ✓ [======================================] 000/200 VUs  30s
+```
+
+##### Load — 300 VUs for 30 seconds
+```text
+TOTAL RESULTS
+
+    checks_total.......: 11242   367.471978/s
+    checks_succeeded...: 100.00% 11242 out of 11242
+    checks_failed......: 0.00%   0 out of 11242
+
+    ✓ find-all-users returns a valid first page
+
+    HTTP
+    http_req_duration..............: avg=409.03ms min=5.27ms med=387.8ms  max=888.74ms p(90)=755.79ms p(95)=795.97ms
+      { expected_response:true }...: avg=409.03ms min=5.27ms med=387.8ms  max=888.74ms p(90)=755.79ms p(95)=795.97ms
+    http_req_failed................: 0.00%  0 out of 11242
+    http_reqs......................: 11242  367.471978/s
+
+    EXECUTION
+    iteration_duration.............: avg=409.54ms min=5.75ms med=388.23ms max=889.79ms p(90)=756.36ms p(95)=796.42ms
+    iterations.....................: 11242  367.471978/s
+    vus............................: 299    min=10         max=299
+    vus_max........................: 300    min=300        max=300
+
+    NETWORK
+    data_received..................: 87 MB  2.9 MB/s
+    data_sent......................: 5.0 MB 163 kB/s
+
+
+
+
+running (0m30.6s), 000/300 VUs, 11242 complete and 0 interrupted iterations
+default ✓ [======================================] 000/300 VUs  30s
+```
+
+##### Load — 450 VUs for 30 seconds
+```text
+ TOTAL RESULTS
+
+    checks_total.......: 11040   359.104436/s
+    checks_succeeded...: 100.00% 11040 out of 11040
+    checks_failed......: 0.00%   0 out of 11040
+
+    ✓ find-all-users returns a valid first page
+
+    HTTP
+    http_req_duration..............: avg=627.65ms min=6.83ms med=620.69ms max=1.22s p(90)=1.12s p(95)=1.15s
+      { expected_response:true }...: avg=627.65ms min=6.83ms med=620.69ms max=1.22s p(90)=1.12s p(95)=1.15s
+    http_req_failed................: 0.00%  0 out of 11040
+    http_reqs......................: 11040  359.104436/s
+
+    EXECUTION
+    iteration_duration.............: avg=628.16ms min=6.83ms med=621.11ms max=1.22s p(90)=1.12s p(95)=1.15s
+    iterations.....................: 11040  359.104436/s
+    vus............................: 449    min=15         max=449
+    vus_max........................: 450    min=450        max=450
+
+    NETWORK
+    data_received..................: 86 MB  2.8 MB/s
+    data_sent......................: 4.9 MB 159 kB/s
+
+
+
+
+running (0m30.7s), 000/450 VUs, 11040 complete and 0 interrupted iterations
+default ✓ [======================================] 000/450 VUs  30s
+```
+
+
+##### Stress — ramp to 800 VUs
+```text
+stages: [
+    { duration: '5s', target: 100 },
+    { duration: '5s', target: 200 },
+    { duration: '5s', target: 400 },
+    { duration: '10s', target: 800 },
+    { duration: '10s', target: 200 },
+  ]
+
+ TOTAL RESULTS
+
+    checks_total.......: 12396   350.410856/s
+    checks_succeeded...: 100.00% 12396 out of 12396
+    checks_failed......: 0.00%   0 out of 12396
+
+    ✓ find-all-users returns a valid first page
+
+    HTTP
+    http_req_duration..............: avg=1.12s min=7.39ms med=1.15s max=2.19s p(90)=2.08s p(95)=2.13s
+      { expected_response:true }...: avg=1.12s min=7.39ms med=1.15s max=2.19s p(90)=2.08s p(95)=2.13s
+    http_req_failed................: 0.00%  0 out of 12396
+    http_reqs......................: 12396  350.410856/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.12s min=7.39ms med=1.15s max=2.2s  p(90)=2.08s p(95)=2.13s
+    iterations.....................: 12396  350.410856/s
+    vus............................: 226    min=19         max=798
+    vus_max........................: 800    min=800        max=800
+
+    NETWORK
+    data_received..................: 96 MB  2.7 MB/s
+    data_sent......................: 5.5 MB 155 kB/s
+
+
+
+
+running (0m35.4s), 000/800 VUs, 12396 complete and 0 interrupted iterations
+default ✓ [======================================] 000/800 VUs  35s
+```
+
+##### Spike — peak 1,000 VUs
+```text
+stages: [
+    { duration: '5s', target: 200 },
+    { duration: '2s', target: 1000 },
+    { duration: '5s', target: 200 },
+  ]
+
+  TOTAL RESULTS
+
+    checks_total.......: 4249    330.884425/s
+    checks_succeeded...: 100.00% 4249 out of 4249
+    checks_failed......: 0.00%   0 out of 4249
+
+    ✓ find-all-users returns a valid first page
+
+    HTTP
+    http_req_duration..............: avg=1.53s min=6.73ms med=1.27s max=5.63s p(90)=3.95s p(95)=5.18s
+      { expected_response:true }...: avg=1.53s min=6.73ms med=1.27s max=5.63s p(90)=3.95s p(95)=5.18s
+    http_req_failed................: 0.00%  0 out of 4249
+    http_reqs......................: 4249   330.884425/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.53s min=7.81ms med=1.27s max=5.64s p(90)=3.95s p(95)=5.18s
+    iterations.....................: 4249   330.884425/s
+    vus............................: 551    min=36        max=1000
+    vus_max........................: 1000   min=1000      max=1000
+
+    NETWORK
+    data_received..................: 33 MB  2.6 MB/s
+    data_sent......................: 1.9 MB 147 kB/s
+
+
+
+
+running (12.8s), 0000/1000 VUs, 4249 complete and 0 interrupted iterations
+default ✓ [======================================] 0000/1000 VUs  12s
+```

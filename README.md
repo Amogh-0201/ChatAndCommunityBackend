@@ -140,6 +140,26 @@ The Docker workflow sets `DATABASE_URL` and `TEST_DATABASE_URL` only in its chil
 
 `npm run test` runs the unit tests; `npm run test:e2e` runs `test/app.e2e-spec.ts` and `test/phase-1.7.e2e-spec.ts` against the dedicated database. The integration suite covers registration/login, protected REST routes, user and conversation APIs, three authenticated users, direct and group messaging, membership denials, server-derived sender identity, persisted message history, a second socket for one user, reconnecting a client, and rejecting a socket without a token. The suite uses Supertest and the existing Socket.IO client to verify correctness; it is not a load benchmark. k6 remains a good fit for the planned V5 load/performance scenarios against a separately running server.
 
+#### Find-all-users performance tests
+
+The user-list endpoint is authenticated and returns one page at a time (up to
+100 users). Create a token pool with the local auth helper, then run a profile:
+
+```powershell
+node scripts/auth-token-pool.mjs login 1000
+k6 run k6_tests/user_service/find_all_users/findall_load.js
+k6 run k6_tests/user_service/find_all_users/findall_stress.js
+k6 run k6_tests/user_service/find_all_users/findall_spike.js
+```
+
+The test requests `/user?limit=100` and validates the paginated response. Each
+request uses an access token from `scripts/.auth-token-pool.json`; the token
+selection wraps with modulo at the number of saved users, so subsequent
+iterations cycle back to the first user rather than exceeding the pool. The
+profiles peak at 200, 600, and 1,000 VUs respectively. `BASE_URL` and
+`TOKEN_POOL_FILE` can be set for k6 if the API or token pool uses a different
+location.
+
 #### Auth refresh performance tests
 
 The local Docker Compose database can be reset by removing its named volume.
