@@ -387,6 +387,73 @@ k6 reported 45.2 s elapsed). The spike held 1,000 VUs for 2 seconds after a
 2-second ramp toward that target.
 
 
+## Conversation service
+
+### Test scope and interpretation
+
+These runs exercise authenticated `POST /conversations/direct/:otherUserId`
+and `POST /conversations/groups`. Each k6 iteration sends one HTTP request. The
+current profiles randomly select an eligible account for each iteration; the
+direct-conversation profile also selects a different participant at random.
+Selection is with replacement, so a pair can recur.
+The [direct-conversation profiles](../k6_tests/conversation_service/get_or_create_direct_conversations/)
+and [group profiles](../k6_tests/conversation_service/create_groups/) check
+HTTP 201 responses and the expected conversation members or group owner.
+
+The direct endpoint is a get-or-create operation. Its response does not indicate
+whether a request created a conversation or returned an existing one, so the
+latency figures below combine both outcomes. Group creation persists a new group
+for every successful request. All recorded checks passed and no HTTP request
+failures were reported. No performance thresholds or system-resource metrics
+were recorded; treat these as local exploratory results.
+
+The recorded stage schedules were:
+
+- **Load:** 15 s ramp to 450 VUs, then 15 s holding at 450.
+- **Stress:** 5 s to 100; 2 s holding at 100; 5 s to 200; 5 s to 400; 3 s
+  holding at 400; 5 s to 800; 5 s holding at 800; 10 s down to 200.
+- **Spike:** 3 s to 200; 2 s holding at 200; 3 s to 1,000; 2 s holding at
+  1,000; 5 s down to 200.
+
+### Get or create direct conversations
+
+| Profile | Elapsed | Active VUs (min-max) | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 31.1 s | 29-450 | 8,744 / 8,744 | 281.59 req/s | 100% (8,744/8,744) | 0 (0%) | 4.2 MB (136 kB/s) | 4.4 MB (143 kB/s) |
+| Stress | 40.5 s | 18-800 | 11,433 / 11,433 | 282.04 req/s | 100% (11,433/11,433) | 0 (0%) | 5.5 MB (137 kB/s) | 5.8 MB (143 kB/s) |
+| Spike | 15.8 s | 59-1,000 | 4,081 / 4,081 | 258.99 req/s | 100% (4,081/4,081) | 0 (0%) | 2.0 MB (125 kB/s) | 2.1 MB (131 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 1.18 s | 8.40 ms | 1.48 s | 1.57 s | 1.60 s | 1.66 s |
+| Load | Iteration | 1.18 s | 8.90 ms | 1.48 s | 1.57 s | 1.60 s | 1.66 s |
+| Stress | HTTP request | 1.44 s | 11.01 ms | 1.32 s | 2.70 s | 2.74 s | 2.82 s |
+| Stress | Iteration | 1.44 s | 11.01 ms | 1.32 s | 2.70 s | 2.74 s | 2.82 s |
+| Spike | HTTP request | 2.10 s | 39.82 ms | 2.31 s | 3.46 s | 4.10 s | 4.50 s |
+| Spike | Iteration | 2.10 s | 41.01 ms | 2.31 s | 3.46 s | 4.10 s | 4.50 s |
+
+### Create groups
+
+| Profile | Elapsed | Active VUs (min-max) | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 31.0 s | 14-450 | 9,148 / 9,148 | 295.40 req/s | 100% (9,148/9,148) | 0 (0%) | 5.8 MB (187 kB/s) | 5.2 MB (167 kB/s) |
+| Stress | 40.4 s | 18-800 | 12,032 / 12,032 | 297.53 req/s | 100% (12,032/12,032) | 0 (0%) | 7.6 MB (188 kB/s) | 6.8 MB (168 kB/s) |
+| Spike | 15.6 s | 59-1,000 | 4,322 / 4,322 | 277.12 req/s | 100% (4,322/4,322) | 0 (0%) | 2.7 MB (175 kB/s) | 2.4 MB (157 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 1.13 s | 16.79 ms | 1.41 s | 1.51 s | 1.52 s | 1.58 s |
+| Load | Iteration | 1.13 s | 17.41 ms | 1.41 s | 1.51 s | 1.52 s | 1.58 s |
+| Stress | HTTP request | 1.36 s | 12.54 ms | 1.26 s | 2.59 s | 2.66 s | 2.75 s |
+| Stress | Iteration | 1.37 s | 12.54 ms | 1.26 s | 2.60 s | 2.66 s | 2.75 s |
+| Spike | HTTP request | 1.96 s | 39.56 ms | 2.05 s | 3.34 s | 4.10 s | 4.58 s |
+| Spike | Iteration | 1.96 s | 41.39 ms | 2.05 s | 3.34 s | 4.10 s | 4.58 s |
+
+The recorded group spike used the 3 s / 2 s / 3 s / 2 s / 5 s schedule listed
+above. The current [create_groups_spike.js](../k6_tests/conversation_service/create_groups/create_groups_spike.js)
+profile has a different stage schedule; compare these results only with runs
+using the recorded schedule, or rerun after aligning the profiles.
+
 ## Mixed service
 
 ### Test method and how to read the profiles

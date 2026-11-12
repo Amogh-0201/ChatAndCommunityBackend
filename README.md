@@ -160,6 +160,54 @@ profiles peak at 450, 800, and 1,000 VUs respectively. `BASE_URL` and
 `TOKEN_POOL_FILE` can be set for k6 if the API or token pool uses a different
 location.
 
+#### Conversation API test data
+
+These scripts save IDs for the first 11,000 generated load-test users, create
+5,500 groups owned by the first 5,500 users, and create 5,500 direct
+conversations pairing users 1-5,500 with users 5,501-11,000. Prepare the user
+accounts and an auth token pool before running the scripts:
+
+```powershell
+node scripts/auth-token-pool.mjs login 11000
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-users.mjs
+$env:SEED_TEST_DATABASE = "I_CONFIRMED_THIS_IS_THE_ISOLATED_TEST_DATABASE"
+node scripts/create-conversation-test-groups.mjs
+node scripts/create-conversation-test-direct.mjs
+Remove-Item Env:SEED_TEST_DATABASE
+```
+
+The group and direct-conversation scripts require the confirmation variable and
+only allow a local `BASE_URL`. They save progress every 100 successful
+operations and can be rerun to resume. User, group, and direct-conversation
+records are saved under `scripts/.conversation-test-*.json`; these files are
+ignored by git. `CONCURRENCY` defaults to 5 (allowed range: 1-50), and
+`TOKEN_POOL_FILE` can override the default `scripts/.auth-token-pool.json`.
+
+#### Conversation API performance tests
+
+The k6 conversation profiles use the saved 11,000-user file and local auth
+token pool. Each iteration randomly selects an eligible authenticated user;
+direct-conversation iterations also choose a random, different user as the
+other participant. Group profiles create a new group on each iteration and
+will grow the database; run them only against an isolated test database. The
+load, stress, and spike profiles peak at 450, 800, and 1,000 VUs.
+Refresh the token pool immediately before the profiles if the setup operations
+or a previous run may have let its 15-minute access tokens expire:
+
+```powershell
+node scripts/auth-token-pool.mjs refresh 11000
+k6 run k6_tests/conversation_service/get_or_create_direct_conversations/get_or_create_direct_load.js
+k6 run k6_tests/conversation_service/get_or_create_direct_conversations/get_or_create_direct_stress.js
+k6 run k6_tests/conversation_service/get_or_create_direct_conversations/get_or_create_direct_spike.js
+k6 run k6_tests/conversation_service/create_groups/create_groups_load.js
+k6 run k6_tests/conversation_service/create_groups/create_groups_stress.js
+k6 run k6_tests/conversation_service/create_groups/create_groups_spike.js
+```
+
+`BASE_URL`, `TOKEN_POOL_FILE`, and `CONVERSATION_USERS_FILE` can override the
+default local API and data-file locations.
+
 #### Get-me and update-user performance tests
 
 The authenticated profile and profile-update tests use the same local token

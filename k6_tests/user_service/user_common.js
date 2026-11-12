@@ -3,7 +3,7 @@ import { SharedArray } from 'k6/data';
 
 const tokenPoolPath =
   __ENV.TOKEN_POOL_FILE || '../../scripts/.auth-token-pool.json';
-const tokenPool = new SharedArray('user-service-auth-token-pool', () => {
+export const tokenPool = new SharedArray('user-service-auth-token-pool', () => {
   const pool = JSON.parse(open(tokenPoolPath));
   if (
     !Array.isArray(pool) ||
