@@ -391,14 +391,21 @@ k6 reported 45.2 s elapsed). The spike held 1,000 VUs for 2 seconds after a
 
 ### Test scope and interpretation
 
-These runs exercise authenticated `POST /conversations/direct/:otherUserId`
-and `POST /conversations/groups`. Each k6 iteration sends one HTTP request. The
-current profiles randomly select an eligible account for each iteration; the
-direct-conversation profile also selects a different participant at random.
-Selection is with replacement, so a pair can recur.
+These runs exercise authenticated `POST /conversations/direct/:otherUserId`,
+`POST /conversations/groups`, `POST /conversations/:id/join`, and
+`GET /conversations/:id/join-requests`. Each k6 iteration sends one HTTP
+request. The direct-conversation and group profiles randomly select an eligible
+account for each iteration; the direct-conversation profile also selects a
+different participant at random. Selection is with replacement, so a pair can
+recur.
 The [direct-conversation profiles](../k6_tests/conversation_service/get_or_create_direct_conversations/)
 and [group profiles](../k6_tests/conversation_service/create_groups/) check
 HTTP 201 responses and the expected conversation members or group owner.
+The [join profiles](../k6_tests/conversation_service/converstion_join/) choose
+a random user and group; expected duplicate or already-member conflicts count
+as valid responses. The
+[join-request listing profiles](../k6_tests/conversation_service/get_conversation_join_req/)
+cycle through saved groups and authenticate as each group's owner.
 
 The direct endpoint is a get-or-create operation. Its response does not indicate
 whether a request created a conversation or returned an existing one, so the
@@ -453,6 +460,54 @@ The recorded group spike used the 3 s / 2 s / 3 s / 2 s / 5 s schedule listed
 above. The current [create_groups_spike.js](../k6_tests/conversation_service/create_groups/create_groups_spike.js)
 profile has a different stage schedule; compare these results only with runs
 using the recorded schedule, or rerun after aligning the profiles.
+
+### Join groups
+
+All recorded runs completed every check without HTTP failures. Checks include
+expected conflict responses, so 100% passing checks does not mean every request
+created a new join request.
+
+| Profile | Elapsed | Active VUs (min-max) | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 30.9 s | 29-450 | 7,519 / 7,519 | 243.13 req/s | 100% (7,519/7,519) | 0 (0%) | 3.7 MB (120 kB/s) | 3.8 MB (123 kB/s) |
+| Stress | 40.5 s | 18-800 | 10,480 / 10,480 | 258.46 req/s | 100% (10,480/10,480) | 0 (0%) | 5.2 MB (127 kB/s) | 5.3 MB (131 kB/s) |
+| Spike | 15.8 s | 58-1,000 | 3,744 / 3,744 | 237.45 req/s | 100% (3,744/3,744) | 0 (0%) | 1.8 MB (117 kB/s) | 1.9 MB (120 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 1.37 s | 112.35 ms | 1.58 s | 1.69 s | 1.72 s | 1.81 s |
+| Load | Iteration | 1.37 s | 112.87 ms | 1.58 s | 1.69 s | 1.72 s | 1.81 s |
+| Stress | HTTP request | 1.58 s | 8.96 ms | 1.38 s | 2.97 s | 3.03 s | 3.11 s |
+| Stress | Iteration | 1.58 s | 9.66 ms | 1.38 s | 2.97 s | 3.03 s | 3.11 s |
+| Spike | HTTP request | 2.30 s | 21.46 ms | 2.45 s | 3.97 s | 4.60 s | 4.91 s |
+| Spike | Iteration | 2.30 s | 21.98 ms | 2.45 s | 3.97 s | 4.60 s | 4.91 s |
+
+### Get conversation join requests
+
+The test authenticates as each saved group owner and cycles through the
+5,500 saved groups. Each check verifies that the owner receives HTTP 200 and
+an array of join requests.
+
+| Profile | Elapsed | Active VUs (min-max) | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 30.7 s | 29-450 | 8,392 / 8,392 | 273.10 req/s | 100% (8,392/8,392) | 0 (0%) | 13 MB (406 kB/s) | 4.1 MB (135 kB/s) |
+| Stress | 40.3 s | 19-800 | 11,069 / 11,069 | 274.34 req/s | 100% (11,069/11,069) | 0 (0%) | 16 MB (407 kB/s) | 5.5 MB (136 kB/s) |
+| Spike | 15.8 s | 51-1,000 | 3,659 / 3,659 | 232.31 req/s | 100% (3,659/3,659) | 0 (0%) | 5.4 MB (345 kB/s) | 1.8 MB (115 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 1.22 s | 37.01 ms | 1.44 s | 1.67 s | 1.88 s | 2.06 s |
+| Load | Iteration | 1.22 s | 37.54 ms | 1.44 s | 1.67 s | 1.89 s | 2.06 s |
+| Stress | HTTP request | 1.48 s | 7.50 ms | 1.48 s | 2.97 s | 3.02 s | 3.11 s |
+| Stress | Iteration | 1.48 s | 8.55 ms | 1.49 s | 2.97 s | 3.02 s | 3.11 s |
+| Spike | HTTP request | 2.44 s | 42.55 ms | 2.17 s | 5.70 s | 6.29 s | 6.44 s |
+| Spike | Iteration | 2.44 s | 43.64 ms | 2.17 s | 5.71 s | 6.29 s | 6.44 s |
+
+The stress and spike runs used the same target schedules listed above for the
+conversation profiles. Throughput stayed around 232–274 req/s, with p95 request
+latency increasing to 6.29 seconds in the 1,000-VU spike. These are exploratory
+local results; no performance thresholds or system-resource metrics were
+recorded.
 
 ## Mixed service
 

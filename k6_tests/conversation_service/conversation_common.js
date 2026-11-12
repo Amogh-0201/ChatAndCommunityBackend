@@ -25,7 +25,6 @@ const conversationUsers = new SharedArray('conversation-test-users', () => {
   }
   return data.users;
 });
-
 const conversationTokenPool = new SharedArray(
   'conversation-test-auth-token-pool',
   () => {
@@ -38,7 +37,10 @@ const conversationTokenPool = new SharedArray(
         'The auth token pool does not include any users in the conversation test user file.',
       );
     }
-    return entries;
+    return entries.sort(
+      (left, right) =>
+        getUserIndex(left.username) - getUserIndex(right.username),
+    );
   },
 );
 
@@ -57,6 +59,34 @@ export function getConversationUserToken(maxVus) {
 
   const tokenIndex = Math.floor(Math.random() * conversationTokenPool.length);
   return conversationTokenPool[tokenIndex];
+}
+
+export function getConversationUserTokenById(userId, username) {
+  const userIndex = getUserIndex(username);
+  const user = conversationUsers[userIndex];
+  if (!user || user.id !== userId || user.username !== username) {
+    throw new Error(
+      `Conversation test user ID "${userId}" does not match username "${username}" in ${userDataPath}.`,
+    );
+  }
+
+  let low = 0;
+  let high = conversationTokenPool.length - 1;
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    const entry = conversationTokenPool[middle];
+    const entryIndex = getUserIndex(entry.username);
+    if (entryIndex === userIndex) return entry;
+    if (entryIndex < userIndex) {
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+
+  throw new Error(
+    `The auth token pool does not include conversation test user "${username}".`,
+  );
 }
 
 export function getUserForToken(entry) {

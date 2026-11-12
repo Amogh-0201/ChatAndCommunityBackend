@@ -2,7 +2,7 @@
 
 > A progressively built, real-time chat and community backend for learning **NestJS, WebSockets, backend architecture, distributed messaging, microservices, event-driven systems, and deployment**—one working version at a time.
 
-**Current milestone:** Version 1 — Functional Chat Application (in progress)  
+**Current milestone:** Version 1 — Functional Chat Application (in progress)
 
 ---
 
@@ -28,20 +28,20 @@ V5  Containerization, Kubernetes, observability and load testing
 
 ## Technology Roadmap
 
-| Layer / concern | Technology | Planned introduction |
-| --- | --- | --- |
-| Backend language and framework | TypeScript, NestJS | V1 |
-| Primary relational persistence | PostgreSQL, Prisma | V1 |
-| HTTP APIs | REST | V1 |
-| Real-time transport | Socket.IO (WebSockets with optional fallback) | V1 |
-| Authentication | Password hashing, JWT, guards | V1 |
-| Distributed socket coordination | Redis, Socket.IO Redis adapter | V2 |
-| Alternative client-facing API | GraphQL, alongside REST | V3 |
-| Internal service-to-service RPC | gRPC | V3 |
-| Background task queue | RabbitMQ | V4 |
-| Event streaming | Kafka | V4 |
-| Containerization and orchestration | Docker, Kubernetes | V5 |
-| Tracing and metrics | OpenTelemetry, Prometheus | V5 |
+| Layer / concern                    | Technology                                    | Planned introduction |
+| ---------------------------------- | --------------------------------------------- | -------------------- |
+| Backend language and framework     | TypeScript, NestJS                            | V1                   |
+| Primary relational persistence     | PostgreSQL, Prisma                            | V1                   |
+| HTTP APIs                          | REST                                          | V1                   |
+| Real-time transport                | Socket.IO (WebSockets with optional fallback) | V1                   |
+| Authentication                     | Password hashing, JWT, guards                 | V1                   |
+| Distributed socket coordination    | Redis, Socket.IO Redis adapter                | V2                   |
+| Alternative client-facing API      | GraphQL, alongside REST                       | V3                   |
+| Internal service-to-service RPC    | gRPC                                          | V3                   |
+| Background task queue              | RabbitMQ                                      | V4                   |
+| Event streaming                    | Kafka                                         | V4                   |
+| Containerization and orchestration | Docker, Kubernetes                            | V5                   |
+| Tracing and metrics                | OpenTelemetry, Prometheus                     | V5                   |
 
 Tools will be added when their responsibilities are needed—not simply to increase the number of technologies in the project.
 
@@ -105,13 +105,13 @@ test/                             # End-to-end tests
 
 The application reads these variables from the root `.env` file (or the process environment):
 
-| Variable | Required | Purpose |
-| --- | --- | --- |
-| `DATABASE_URL` | Yes | PostgreSQL connection string used by Prisma. |
-| `JWT_ACCESS_SECRET` | Yes | Secret used to sign access tokens. Keep it private and use a strong value. |
-| `JWT_ISSUER` | Yes | Expected issuer for access tokens. |
-| `JWT_AUDIENCE` | Yes | Expected audience for access tokens. |
-| `PORT` | No | HTTP port; defaults to `3000`. |
+| Variable            | Required | Purpose                                                                    |
+| ------------------- | -------- | -------------------------------------------------------------------------- |
+| `DATABASE_URL`      | Yes      | PostgreSQL connection string used by Prisma.                               |
+| `JWT_ACCESS_SECRET` | Yes      | Secret used to sign access tokens. Keep it private and use a strong value. |
+| `JWT_ISSUER`        | Yes      | Expected issuer for access tokens.                                         |
+| `JWT_AUDIENCE`      | Yes      | Expected audience for access tokens.                                       |
+| `PORT`              | No       | HTTP port; defaults to `3000`.                                             |
 
 Install dependencies, generate the Prisma client, apply local migrations, and start the application:
 
@@ -207,6 +207,40 @@ k6 run k6_tests/conversation_service/create_groups/create_groups_spike.js
 
 `BASE_URL`, `TOKEN_POOL_FILE`, and `CONVERSATION_USERS_FILE` can override the
 default local API and data-file locations.
+
+#### Group join-request performance tests
+
+These profiles submit `POST /conversations/:id/join` with a random conversation
+test user and group on each iteration. A duplicate pending/already-approved
+request, or the owner trying to join their own group, is counted as an expected
+response; unexpected errors still fail the check. The profiles use the same
+load, stress, and spike stages as the other conversation tests, peaking at
+450, 800, and 1,000 VUs:
+
+```powershell
+k6 run k6_tests/conversation_service/converstion_join/join_groups_load.js
+k6 run k6_tests/conversation_service/converstion_join/join_groups_stress.js
+k6 run k6_tests/conversation_service/converstion_join/join_groups_spike.js
+```
+
+Run these against the prepared conversation test data and isolated database.
+
+#### Get conversation join-requests performance tests
+
+These profiles authenticate as each saved group owner and cycle through the
+5,500 saved conversation IDs in order, wrapping to the first group with modulo.
+Run them after preparing the conversation test data and refreshing the access
+tokens:
+
+```powershell
+k6 run k6_tests/conversation_service/get_conversation_join_req/get_conversation_join_req_load.js
+k6 run k6_tests/conversation_service/get_conversation_join_req/get_conversation_join_req_stress.js
+k6 run k6_tests/conversation_service/get_conversation_join_req/get_conversation_join_req_spike.js
+```
+
+`BASE_URL`, `TOKEN_POOL_FILE`, `CONVERSATION_USERS_FILE`, and
+`CONVERSATION_GROUPS_FILE` can override the default API, token pool, and data
+files.
 
 #### Get-me and update-user performance tests
 
@@ -359,27 +393,27 @@ All REST routes below require `Authorization: Bearer <accessToken>` unless marke
 
 #### REST endpoints
 
-| Method | Route | Access | What it does |
-| --- | --- | --- | --- |
-| `GET` | `/` | Public | Returns the application's greeting. |
-| `POST` | `/auth/register` | Public | Registers a user. Body: `{ "name": "...", "username": "...", "phoneNumber": "+...", "password": "..." }`. |
-| `POST` | `/auth/login` | Public | Authenticates with username and password. Body: `{ "username": "...", "password": "..." }`. |
-| `POST` | `/auth/refresh` | Public | Rotates the refresh token. Body: `{ "refreshToken": "..." }`. |
-| `POST` | `/auth/logout` | Public | Revokes the session identified by the supplied refresh token. Body: `{ "refreshToken": "..." }`. |
-| `POST` | `/auth/logout-all` | Authenticated | Revokes all of the current user's sessions and disconnects their sockets. |
-| `GET` | `/user` | Authenticated | Lists up to 50 users (id, name, username, and createdAt), newest first. |
-| `GET` | `/user/me` | Authenticated | Returns the current user's profile (id, name, username, phoneNumber, and createdAt). |
-| `POST` | `/conversations/direct/:otherUserId` | Authenticated | Gets or creates the direct conversation between the current user and the specified user. The response includes the conversation id, type, creation time, and member ids/roles. |
-| `POST` | `/conversations/groups` | Authenticated | Creates a group with the current user as owner. Body: `{ "name": "...", "joinPolicy": "OPEN" }`; `joinPolicy` is optional and defaults to `REQUEST`. |
-| `GET` | `/conversations` | Authenticated | Lists the current user's conversations, newest-updated first, including member summaries/count and the latest message. |
-| `GET` | `/conversations/:id` | Authenticated | Returns conversation details. Direct conversations require membership; authenticated users can view group details before joining. |
-| `PATCH` | `/conversations/:id` | Authenticated, group owner | Updates a group's `name` and/or `joinPolicy` (`OPEN` or `REQUEST`). At least one field is required. |
-| `POST` | `/conversations/:id/join` | Authenticated | Joins an `OPEN` group immediately or creates/reopens a pending request for a `REQUEST` group. |
-| `DELETE` | `/conversations/:id/leave` | Authenticated member | Leaves a group. The owner cannot leave. |
-| `GET` | `/conversations/:id/join-requests` | Authenticated, group owner | Lists pending join requests for the group. |
-| `PATCH` | `/conversations/:id/join-requests/:requestId` | Authenticated, group owner | Approves or rejects a pending request. Body: `{ "action": "APPROVE" }` or `{ "action": "REJECT" }`. |
-| `DELETE` | `/conversations/:id/join-requests/me` | Authenticated | Cancels the current user's pending request for the group. |
-| `GET` | `/conversations/:conversationId/messages` | Authenticated member | Lists messages in chronological order. Query: `limit` (default `50`, range `1`-`100`) and optional `cursor` (a message id from this conversation). Returns `{ "messages": [...], "nextCursor": "... or null", "hasMore": true }`; use `nextCursor` for the next page. |
+| Method   | Route                                         | Access                     | What it does                                                                                                                                                                                                                                                          |
+| -------- | --------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`    | `/`                                           | Public                     | Returns the application's greeting.                                                                                                                                                                                                                                   |
+| `POST`   | `/auth/register`                              | Public                     | Registers a user. Body: `{ "name": "...", "username": "...", "phoneNumber": "+...", "password": "..." }`.                                                                                                                                                             |
+| `POST`   | `/auth/login`                                 | Public                     | Authenticates with username and password. Body: `{ "username": "...", "password": "..." }`.                                                                                                                                                                           |
+| `POST`   | `/auth/refresh`                               | Public                     | Rotates the refresh token. Body: `{ "refreshToken": "..." }`.                                                                                                                                                                                                         |
+| `POST`   | `/auth/logout`                                | Public                     | Revokes the session identified by the supplied refresh token. Body: `{ "refreshToken": "..." }`.                                                                                                                                                                      |
+| `POST`   | `/auth/logout-all`                            | Authenticated              | Revokes all of the current user's sessions and disconnects their sockets.                                                                                                                                                                                             |
+| `GET`    | `/user`                                       | Authenticated              | Lists up to 50 users (id, name, username, and createdAt), newest first.                                                                                                                                                                                               |
+| `GET`    | `/user/me`                                    | Authenticated              | Returns the current user's profile (id, name, username, phoneNumber, and createdAt).                                                                                                                                                                                  |
+| `POST`   | `/conversations/direct/:otherUserId`          | Authenticated              | Gets or creates the direct conversation between the current user and the specified user. The response includes the conversation id, type, creation time, and member ids/roles.                                                                                        |
+| `POST`   | `/conversations/groups`                       | Authenticated              | Creates a group with the current user as owner. Body: `{ "name": "...", "joinPolicy": "OPEN" }`; `joinPolicy` is optional and defaults to `REQUEST`.                                                                                                                  |
+| `GET`    | `/conversations`                              | Authenticated              | Lists the current user's conversations, newest-updated first, including member summaries/count and the latest message.                                                                                                                                                |
+| `GET`    | `/conversations/:id`                          | Authenticated              | Returns conversation details. Direct conversations require membership; authenticated users can view group details before joining.                                                                                                                                     |
+| `PATCH`  | `/conversations/:id`                          | Authenticated, group owner | Updates a group's `name` and/or `joinPolicy` (`OPEN` or `REQUEST`). At least one field is required.                                                                                                                                                                   |
+| `POST`   | `/conversations/:id/join`                     | Authenticated              | Joins an `OPEN` group immediately or creates/reopens a pending request for a `REQUEST` group.                                                                                                                                                                         |
+| `DELETE` | `/conversations/:id/leave`                    | Authenticated member       | Leaves a group. The owner cannot leave.                                                                                                                                                                                                                               |
+| `GET`    | `/conversations/:id/join-requests`            | Authenticated, group owner | Lists pending join requests for the group.                                                                                                                                                                                                                            |
+| `PATCH`  | `/conversations/:id/join-requests/:requestId` | Authenticated, group owner | Approves or rejects a pending request. Body: `{ "action": "APPROVE" }` or `{ "action": "REJECT" }`.                                                                                                                                                                   |
+| `DELETE` | `/conversations/:id/join-requests/me`         | Authenticated              | Cancels the current user's pending request for the group.                                                                                                                                                                                                             |
+| `GET`    | `/conversations/:conversationId/messages`     | Authenticated member       | Lists messages in chronological order. Query: `limit` (default `50`, range `1`-`100`) and optional `cursor` (a message id from this conversation). Returns `{ "messages": [...], "nextCursor": "... or null", "hasMore": true }`; use `nextCursor` for the next page. |
 
 `/auth/register`, `/auth/login`, and `/auth/refresh` return `accessToken`, `refreshToken`, `tokenType`, `expiresIn` (seconds), `refreshTokenExpiresAt`, `sessionExpiresAt`, and the user profile. Access tokens are short-lived; use `/auth/refresh` to rotate the refresh token. The `:id`, `:requestId`, `:otherUserId`, and `:conversationId` path parameters are UUIDs.
 
@@ -397,19 +431,19 @@ const socket = io(API_BASE_URL, {
 
 The server validates the access token and its active session, joins the socket to a server-selected `user:<userId>` room, and disconnects it when the access token expires. There is no client `user:join` event. Message delivery targets each conversation member's user room, so clients do not need to join a conversation room to send or receive messages. `conversation:join` is required for conversation-scoped presence snapshots and typing events; only members can join.
 
-| Direction | Event | Payload / acknowledgement | What it does |
-| --- | --- | --- | --- |
-| Client → server | `conversation:join` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` or `{ "ok": false, "error": "..." }` | Checks membership and joins this socket to the conversation room. Also emits a `presence:snapshot` to this socket containing the online IDs of the conversation's other members. |
-| Client → server | `conversation:leave` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` | Leaves the conversation room for this socket. |
-| Client → server | `message:send` | `{ "conversationId": "<conversation UUID>", "content": "..." }`; acknowledge with `{ "ok": true, "message": { ... } }` or `{ "ok": false, "error": "..." }` | Persists a message in a conversation where the authenticated user is a member. `content` is trimmed and must contain 1-2000 characters. The sender id is taken from the authenticated socket, not supplied by the client. |
-| Server → client | `message:new` | Message object with `id`, `senderId`, `conversationId`, `content`, and `createdAt` | Announces a persisted message to every connected socket of the conversation's other members and the sender's other sockets, except the socket that sent it. The originating socket receives the message in its `message:send` acknowledgement. |
-| Client → server | `presence:get-snapshot` | No payload; acknowledges `{ "ok": true }` | Requests an updated presence snapshot for the authenticated user's peers (users who share at least one conversation). The server also emits `presence:snapshot` to this socket. |
-| Server → client | `presence:snapshot` | `{ "onlineUserIds": ["<user UUID>", ...] }` | Lists currently online peers. Emitted on connection, on `presence:get-snapshot`, and after successfully joining a conversation (the latter contains that conversation's other members). |
-| Server → client | `presence:online` | `{ "userId": "<user UUID>" }` | Announces that a peer sharing a conversation has become online. Emitted when their first socket connects. |
-| Server → client | `presence:offline` | `{ "userId": "<user UUID>" }` | Announces that a peer sharing a conversation has gone offline. Emitted when their last socket disconnects. |
-| Client → server | `typing:start` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true }` or `{ "ok": false, "error": "..." }` | Emits `typing:started` to the other sockets in the conversation room. The user must be a member and this socket must have joined the room. |
-| Client → server | `typing:stop` | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true }` or `{ "ok": false, "error": "..." }` | Emits `typing:stopped` to the other sockets in the conversation room. The user must be a member and this socket must have joined the room. |
-| Server → client | `typing:started`, `typing:stopped` | `{ "conversationId": "<conversation UUID>", "userId": "<user UUID>" }` | Notifies the other sockets in a joined conversation when a member starts or stops typing. These events are ephemeral and are not persisted. |
+| Direction       | Event                              | Payload / acknowledgement                                                                                                                                   | What it does                                                                                                                                                                                                                                   |
+| --------------- | ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Client → server | `conversation:join`                | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }` or `{ "ok": false, "error": "..." }`                  | Checks membership and joins this socket to the conversation room. Also emits a `presence:snapshot` to this socket containing the online IDs of the conversation's other members.                                                               |
+| Client → server | `conversation:leave`               | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true, "conversationId": "..." }`                                                       | Leaves the conversation room for this socket.                                                                                                                                                                                                  |
+| Client → server | `message:send`                     | `{ "conversationId": "<conversation UUID>", "content": "..." }`; acknowledge with `{ "ok": true, "message": { ... } }` or `{ "ok": false, "error": "..." }` | Persists a message in a conversation where the authenticated user is a member. `content` is trimmed and must contain 1-2000 characters. The sender id is taken from the authenticated socket, not supplied by the client.                      |
+| Server → client | `message:new`                      | Message object with `id`, `senderId`, `conversationId`, `content`, and `createdAt`                                                                          | Announces a persisted message to every connected socket of the conversation's other members and the sender's other sockets, except the socket that sent it. The originating socket receives the message in its `message:send` acknowledgement. |
+| Client → server | `presence:get-snapshot`            | No payload; acknowledges `{ "ok": true }`                                                                                                                   | Requests an updated presence snapshot for the authenticated user's peers (users who share at least one conversation). The server also emits `presence:snapshot` to this socket.                                                                |
+| Server → client | `presence:snapshot`                | `{ "onlineUserIds": ["<user UUID>", ...] }`                                                                                                                 | Lists currently online peers. Emitted on connection, on `presence:get-snapshot`, and after successfully joining a conversation (the latter contains that conversation's other members).                                                        |
+| Server → client | `presence:online`                  | `{ "userId": "<user UUID>" }`                                                                                                                               | Announces that a peer sharing a conversation has become online. Emitted when their first socket connects.                                                                                                                                      |
+| Server → client | `presence:offline`                 | `{ "userId": "<user UUID>" }`                                                                                                                               | Announces that a peer sharing a conversation has gone offline. Emitted when their last socket disconnects.                                                                                                                                     |
+| Client → server | `typing:start`                     | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true }` or `{ "ok": false, "error": "..." }`                                           | Emits `typing:started` to the other sockets in the conversation room. The user must be a member and this socket must have joined the room.                                                                                                     |
+| Client → server | `typing:stop`                      | `{ "conversationId": "<conversation UUID>" }`; acknowledges `{ "ok": true }` or `{ "ok": false, "error": "..." }`                                           | Emits `typing:stopped` to the other sockets in the conversation room. The user must be a member and this socket must have joined the room.                                                                                                     |
+| Server → client | `typing:started`, `typing:stopped` | `{ "conversationId": "<conversation UUID>", "userId": "<user UUID>" }`                                                                                      | Notifies the other sockets in a joined conversation when a member starts or stops typing. These events are ephemeral and are not persisted.                                                                                                    |
 
 The standard Socket.IO `connect`, `connect_error`, and `disconnect` lifecycle events also apply. Connections are rejected without a valid active-session access token and disconnected when that token expires. Presence and typing events are ephemeral; they are not stored in the database.
 
@@ -520,7 +554,7 @@ A registered user can log in, start a direct or group conversation, send and rec
 
 ## Phase 2.2 — Recovery and delivery semantics
 
-- [ ] Define the meaning of *accepted*, *persisted*, *delivered* and *read*.
+- [ ] Define the meaning of _accepted_, _persisted_, _delivered_ and _read_.
 - [ ] Add client-generated message IDs or idempotency keys to prevent duplicates on retries.
 - [ ] Provide message acknowledgements with clear success/error semantics.
 - [ ] Design reconnection synchronization to fetch messages missed while offline.
