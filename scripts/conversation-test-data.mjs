@@ -31,6 +31,10 @@ export const joinRequestDataPath = path.resolve(
 export const directDataPath = path.resolve(
   'scripts/.conversation-test-direct.json',
 );
+export const leaveGroupDataPath = path.resolve(
+  process.env.CONVERSATION_LEAVE_GROUPS_FILE ||
+    'scripts/.conversation-test-leave-groups.json',
+);
 
 export function assertLocalApi() {
   const apiUrl = new URL(baseUrl);

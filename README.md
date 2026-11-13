@@ -301,6 +301,49 @@ These profiles use the saved conversation user and group files.
 `CONVERSATION_USERS_FILE` and `CONVERSATION_GROUPS_FILE` can override their
 default paths.
 
+#### Leave-group performance test data
+
+Refresh the saved group memberships immediately before running leave-group
+performance tests. The collector requests `/conversations` as each of the
+11,000 test users and saves their group conversation IDs, names, and membership
+roles to `scripts/.conversation-test-leave-groups.json`:
+
+```powershell
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-leave-groups.mjs
+```
+
+The output contains all users, including users with no group memberships.
+Membership roles are included so a leave-group test can select `MEMBER` entries
+and avoid attempting to leave as an owner. The collector checkpoints progress;
+the output is marked `complete: true` only after all users have been fetched.
+`CONVERSATION_LEAVE_GROUPS_FILE` can override the output path.
+
+#### Leave-group performance tests
+
+These profiles use the refreshed group-membership data and the 11,000-user
+token pool. Each non-owner membership is used at most once per profile because
+successful leaves change membership state; owner memberships may be reused.
+An owner’s documented `403` response is counted as an expected result, while
+other unexpected responses fail the check. Refresh membership data before each
+profile:
+
+```powershell
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-leave-groups.mjs
+k6 run k6_tests/conversation_service/leave_group/leave_group_load.js
+
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-leave-groups.mjs
+k6 run k6_tests/conversation_service/leave_group/leave_group_stress.js
+
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-leave-groups.mjs
+k6 run k6_tests/conversation_service/leave_group/leave_group_spike.js
+```
+
+`CONVERSATION_LEAVE_GROUPS_FILE` can override the membership-data file path.
+
 #### Get-me and update-user performance tests
 
 The authenticated profile and profile-update tests use the same local token

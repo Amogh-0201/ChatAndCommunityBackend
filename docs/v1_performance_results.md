@@ -1115,6 +1115,152 @@ default ✓ [======================================] 0000/1000 VUs  15s
 Load results are included for every endpoint with recorded load runs. The
 logout-all endpoint is the exception: only its stress run was saved.
 
+
+### Leave Group
+
+These profiles call `DELETE /conversations/:id/leave` using the saved
+membership data. An owner’s documented `403` response counts as an expected
+result; each non-owner membership is used at most once per profile to avoid
+repeating a successful leave. All three runs passed every check and reported
+zero HTTP request failures.
+
+| Profile | VU target sequence | Elapsed | Active VUs | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 30.6 s | 0-450 | 11,010 / 11,010 | 359.90 req/s | 100% (11,010/11,010) | 0 (0%) | 3.7 MB (120 kB/s) | 5.4 MB (176 kB/s) |
+| Stress | 5 s to 100; 2 s hold; 5 s to 200; 5 s to 400; 3 s hold; 5 s to 800; 5 s hold; 10 s down to 200 | 40.2 s | 0-800 | 15,694 / 15,694 | 390.11 req/s | 100% (15,694/15,694) | 0 (0%) | 5.9 MB (146 kB/s) | 7.7 MB (191 kB/s) |
+| Spike | 3 s to 200; 2 s hold; 3 s to 1,000; 2 s hold; 5 s down to 200 | 15.3 s | 0-1,000 | 5,135 / 5,135 | 335.77 req/s | 100% (5,135/5,135) | 0 (0%) | 1.7 MB (112 kB/s) | 2.5 MB (164 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 933.58 ms | 6.46 ms | 1.01 s | 1.40 s | 1.42 s | 1.49 s |
+| Load | Iteration | 934.19 ms | 7 ms | 1.01 s | 1.40 s | 1.42 s | 1.50 s |
+| Stress | HTTP request | 1.03 s | 7.17 ms | 965.05 ms | 1.94 s | 2.00 s | 2.06 s |
+| Stress | Iteration | 1.03 s | 7.95 ms | 965.68 ms | 1.94 s | 2.00 s | 2.06 s |
+| Spike | HTTP request | 1.63 s | 14.30 ms | 1.48 s | 3.03 s | 4.34 s | 5.31 s |
+| Spike | Iteration | 1.63 s | 14.88 ms | 1.48 s | 3.03 s | 4.34 s | 5.31 s |
+
+<details>
+<summary>Raw k6 output</summary>
+
+#### load test
+
+```text
+stages: [
+    { duration: '15s', target: 450 },
+    { duration: '15s', target: 450 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 11010   359.904976/s
+    checks_succeeded...: 100.00% 11010 out of 11010
+    checks_failed......: 0.00%   0 out of 11010
+
+    ✓ leave-group succeeds or returns the expected owner denial
+
+    HTTP
+    http_req_duration..............: avg=933.58ms min=6.46ms med=1.01s max=1.49s p(90)=1.4s p(95)=1.42s
+      { expected_response:true }...: avg=933.58ms min=6.46ms med=1.01s max=1.49s p(90)=1.4s p(95)=1.42s
+    http_req_failed................: 0.00%  0 out of 11010
+    http_reqs......................: 11010  359.904976/s
+
+    EXECUTION
+    iteration_duration.............: avg=934.19ms min=7ms    med=1.01s max=1.5s  p(90)=1.4s p(95)=1.42s
+    iterations.....................: 11010  359.904976/s
+    vus............................: 78     min=0          max=450
+    vus_max........................: 450    min=16         max=450
+
+    NETWORK
+    data_received..................: 3.7 MB 120 kB/s
+    data_sent......................: 5.4 MB 176 kB/s
+
+running (0m30.6s), 000/450 VUs, 11010 complete and 0 interrupted iterations
+default ✓ [======================================] 000/450 VUs  30s
+```
+
+#### stress test
+
+```text
+stages: [
+    { duration: '5s', target: 100 },
+    { duration: '2s', target: 100 },
+    { duration: '5s', target: 200 },
+    { duration: '5s', target: 400 },
+    { duration: '3s', target: 400 },
+    { duration: '5s', target: 800 },
+    { duration: '5s', target: 800 },
+    { duration: '10s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 15694   390.110892/s
+    checks_succeeded...: 100.00% 15694 out of 15694
+    checks_failed......: 0.00%   0 out of 15694
+
+    ✓ leave-group succeeds or returns the expected owner denial
+
+    HTTP
+    http_req_duration..............: avg=1.03s min=7.17ms med=965.05ms max=2.06s p(90)=1.94s p(95)=2s
+      { expected_response:true }...: avg=1.03s min=7.17ms med=965.05ms max=2.06s p(90)=1.94s p(95)=2s
+    http_req_failed................: 0.00%  0 out of 15694
+    http_reqs......................: 15694  390.110892/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.03s min=7.95ms med=965.68ms max=2.06s p(90)=1.94s p(95)=2s
+    iterations.....................: 15694  390.110892/s
+    vus............................: 245    min=0          max=800
+    vus_max........................: 800    min=13         max=800
+
+    NETWORK
+    data_received..................: 5.9 MB 146 kB/s
+    data_sent......................: 7.7 MB 191 kB/s
+
+running (0m40.2s), 000/800 VUs, 15694 complete and 0 interrupted iterations
+default ✓ [======================================] 000/800 VUs  40s
+```
+
+#### spike test
+
+```text
+stages: [
+    { duration: '3s', target: 200 },
+    { duration: '2s', target: 200 },
+    { duration: '3s', target: 1_000 },
+    { duration: '2s', target: 1_000 },
+    { duration: '5s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 5135    335.772528/s
+    checks_succeeded...: 100.00% 5135 out of 5135
+    checks_failed......: 0.00%   0 out of 5135
+
+    ✓ leave-group succeeds or returns the expected owner denial
+
+    HTTP
+    http_req_duration..............: avg=1.63s min=14.3ms  med=1.48s max=5.31s p(90)=3.03s p(95)=4.34s
+      { expected_response:true }...: avg=1.63s min=14.3ms  med=1.48s max=5.31s p(90)=3.03s p(95)=4.34s
+    http_req_failed................: 0.00%  0 out of 5135
+    http_reqs......................: 5135   335.772528/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.63s min=14.88ms med=1.48s max=5.31s p(90)=3.03s p(95)=4.34s
+    iterations.....................: 5135   335.772528/s
+    vus............................: 134    min=0         max=1000
+    vus_max........................: 1000   min=8         max=1000
+
+    NETWORK
+    data_received..................: 1.7 MB 112 kB/s
+    data_sent......................: 2.5 MB 164 kB/s
+
+running (15.3s), 0000/1000 VUs, 5135 complete and 0 interrupted iterations
+default ✓ [======================================] 0000/1000 VUs  15s
+```
+
+</details>
+
 ## Mixed service
 
 ### Test method and how to read the profiles
