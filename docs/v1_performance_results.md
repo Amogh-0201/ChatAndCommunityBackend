@@ -509,6 +509,119 @@ latency increasing to 6.29 seconds in the 1,000-VU spike. These are exploratory
 local results; no performance thresholds or system-resource metrics were
 recorded.
 
+### Review Conversation Join Requests
+
+#### load test
+stages: [
+    { duration: '15s', target: 450 },
+    { duration: '15s', target: 450 },
+  ]
+
+   TOTAL RESULTS 
+
+    checks_total.......: 7783    250.774589/s
+    checks_succeeded...: 100.00% 7783 out of 7783
+    checks_failed......: 0.00%   0 out of 7783
+
+    ✓ review-join-request succeeds or returns an already-reviewed conflict
+
+    HTTP
+    http_req_duration..............: avg=1.33s min=17.29ms med=1.63s max=1.94s p(90)=1.78s p(95)=1.86s
+      { expected_response:true }...: avg=1.33s min=17.29ms med=1.63s max=1.94s p(90)=1.78s p(95)=1.86s
+    http_req_failed................: 0.00%  0 out of 7783
+    http_reqs......................: 7783   250.774589/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.33s min=17.31ms med=1.63s max=1.94s p(90)=1.78s p(95)=1.86s
+    iterations.....................: 7783   250.774589/s
+    vus............................: 58     min=28        max=450
+    vus_max........................: 450    min=450       max=450
+
+    NETWORK
+    data_received..................: 3.9 MB 127 kB/s
+    data_sent......................: 4.7 MB 152 kB/s
+
+
+running (0m31.0s), 000/450 VUs, 7783 complete and 0 interrupted iterations
+default ✓ [======================================] 000/450 VUs  30s
+
+#### stress test
+stages: [
+    { duration: '3s', target: 100 },
+    { duration: '2s', target: 100 },
+    { duration: '3s', target: 200 },
+    { duration: '3s', target: 400 },
+    { duration: '2s', target: 400 },
+    { duration: '5s', target: 800 },
+    { duration: '5s', target: 800 },
+    { duration: '5s', target: 200 },
+  ]
+
+TOTAL RESULTS 
+
+    checks_total.......: 6802    237.269558/s
+    checks_succeeded...: 100.00% 6802 out of 6802
+    checks_failed......: 0.00%   0 out of 6802
+
+    ✓ review-join-request succeeds or returns an already-reviewed conflict
+
+    HTTP
+    http_req_duration..............: avg=1.86s min=11.76ms med=2.16s max=3.22s p(90)=3.16s p(95)=3.18s
+      { expected_response:true }...: avg=1.86s min=11.76ms med=2.16s max=3.22s p(90)=3.16s p(95)=3.18s
+    http_req_failed................: 0.00%  0 out of 6802
+    http_reqs......................: 6802   237.269558/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.86s min=12.29ms med=2.16s max=3.22s p(90)=3.16s p(95)=3.18s
+    iterations.....................: 6802   237.269558/s
+    vus............................: 307    min=30        max=800
+    vus_max........................: 800    min=800       max=800
+
+    NETWORK
+    data_received..................: 3.4 MB 120 kB/s
+    data_sent......................: 4.1 MB 143 kB/s
+
+
+running (28.7s), 000/800 VUs, 6802 complete and 0 interrupted iterations
+default ✓ [======================================] 000/800 VUs  28s
+
+#### spike test
+stages: [
+    { duration: '3s', target: 200 },
+    { duration: '2s', target: 200 },
+    { duration: '3s', target: 1000 },
+    { duration: '2s', target: 1000 },
+    { duration: '5s', target: 200 },
+  ]
+
+TOTAL RESULTS 
+
+    checks_total.......: 3655    230.901522/s
+    checks_succeeded...: 100.00% 3655 out of 3655
+    checks_failed......: 0.00%   0 out of 3655
+
+    ✓ review-join-request succeeds or returns an already-reviewed conflict
+
+    HTTP
+    http_req_duration..............: avg=2.4s min=29.88ms med=2.62s max=5.35s p(90)=4.37s p(95)=5.01s
+      { expected_response:true }...: avg=2.4s min=29.88ms med=2.62s max=5.35s p(90)=4.37s p(95)=5.01s
+    http_req_failed................: 0.00%  0 out of 3655
+    http_reqs......................: 3655   230.901522/s
+
+    EXECUTION
+    iteration_duration.............: avg=2.4s min=31.25ms med=2.62s max=5.35s p(90)=4.37s p(95)=5.01s
+    iterations.....................: 3655   230.901522/s
+    vus............................: 428    min=58        max=1000
+    vus_max........................: 1000   min=1000      max=1000
+
+    NETWORK
+    data_received..................: 1.8 MB 117 kB/s
+    data_sent......................: 2.2 MB 140 kB/s
+
+
+running (15.8s), 0000/1000 VUs, 3655 complete and 0 interrupted iterations
+default ✓ [======================================] 0000/1000 VUs  15s
+
 ## Mixed service
 
 ### Test method and how to read the profiles

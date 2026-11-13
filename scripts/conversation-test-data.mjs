@@ -25,6 +25,9 @@ export const userDataPath = path.resolve(
 export const groupDataPath = path.resolve(
   'scripts/.conversation-test-groups.json',
 );
+export const joinRequestDataPath = path.resolve(
+  'scripts/.conversation-test-join-requests.json',
+);
 export const directDataPath = path.resolve(
   'scripts/.conversation-test-direct.json',
 );

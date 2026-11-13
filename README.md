@@ -173,6 +173,7 @@ node scripts/auth-token-pool.mjs refresh 11000
 node scripts/get-conversation-test-users.mjs
 $env:SEED_TEST_DATABASE = "I_CONFIRMED_THIS_IS_THE_ISOLATED_TEST_DATABASE"
 node scripts/create-conversation-test-groups.mjs
+node scripts/get-conversation-test-join-requests.mjs
 node scripts/create-conversation-test-direct.mjs
 Remove-Item Env:SEED_TEST_DATABASE
 ```
@@ -183,6 +184,10 @@ operations and can be rerun to resume. User, group, and direct-conversation
 records are saved under `scripts/.conversation-test-*.json`; these files are
 ignored by git. `CONCURRENCY` defaults to 5 (allowed range: 1-50), and
 `TOKEN_POOL_FILE` can override the default `scripts/.auth-token-pool.json`.
+The join-request collection script uses each group's owner token to fetch its
+pending requests and saves them alongside the group metadata in
+`scripts/.conversation-test-join-requests.json`. It requires the same database
+confirmation and local `BASE_URL`, and saves progress every 100 groups.
 
 #### Conversation API performance tests
 
@@ -241,6 +246,32 @@ k6 run k6_tests/conversation_service/get_conversation_join_req/get_conversation_
 `BASE_URL`, `TOKEN_POOL_FILE`, `CONVERSATION_USERS_FILE`, and
 `CONVERSATION_GROUPS_FILE` can override the default API, token pool, and data
 files.
+
+#### Review conversation join-request performance tests
+
+These profiles use the saved join-request file and authenticate as each
+request's group owner. They review requests in order, wrapping to the first
+request if a profile has more iterations than saved requests; each action
+randomly approves or rejects. Since reviewing changes request status, rerun
+the collector before each profile to refresh the file with pending requests.
+Already-reviewed conflicts caused by cycling are expected:
+
+```powershell
+$env:SEED_TEST_DATABASE = "I_CONFIRMED_THIS_IS_THE_ISOLATED_TEST_DATABASE"
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-join-requests.mjs
+k6 run k6_tests/conversation_service/review_conversation_join_req/review_conversation_join_req_load.js
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-join-requests.mjs
+k6 run k6_tests/conversation_service/review_conversation_join_req/review_conversation_join_req_stress.js
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-join-requests.mjs
+k6 run k6_tests/conversation_service/review_conversation_join_req/review_conversation_join_req_spike.js
+Remove-Item Env:SEED_TEST_DATABASE
+```
+
+The profiles peak at 450, 800, and 1,000 VUs respectively.
+`CONVERSATION_JOIN_REQUESTS_FILE` can override the default request-data file.
 
 #### Get-me and update-user performance tests
 
