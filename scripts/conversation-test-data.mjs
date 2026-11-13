@@ -35,6 +35,15 @@ export const leaveGroupDataPath = path.resolve(
   process.env.CONVERSATION_LEAVE_GROUPS_FILE ||
     'scripts/.conversation-test-leave-groups.json',
 );
+export const cancelRequestPlanPath = path.resolve(
+  process.env.CONVERSATION_CANCEL_REQUEST_PLAN_FILE ||
+    'scripts/.conversation-test-cancel-request-plan.json',
+);
+export const cancelRequestDataPath = path.resolve(
+  process.env.CONVERSATION_CANCEL_REQUESTS_FILE ||
+    'scripts/.conversation-test-cancel-requests.json',
+);
+export const cancelRequestCount = 30_000;
 
 export function assertLocalApi() {
   const apiUrl = new URL(baseUrl);
@@ -144,14 +153,19 @@ export async function loadTokenPool() {
 }
 
 export async function apiRequest(route, token, options = {}) {
+  const { acceptedStatuses = [], ...requestOptions } = options;
+  if (!Array.isArray(acceptedStatuses)) {
+    throw new Error('acceptedStatuses must be an array.');
+  }
+
   let response;
   try {
     response = await fetch(`${baseUrl}${route}`, {
-      ...options,
+      ...requestOptions,
       headers: {
-        ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(requestOptions.body ? { 'Content-Type': 'application/json' } : {}),
         Authorization: `Bearer ${token}`,
-        ...options.headers,
+        ...requestOptions.headers,
       },
     });
   } catch (error) {
@@ -169,7 +183,7 @@ export async function apiRequest(route, token, options = {}) {
     );
   }
 
-  if (!response.ok) {
+  if (!response.ok && !acceptedStatuses.includes(response.status)) {
     const detail =
       typeof body?.message === 'string'
         ? body.message

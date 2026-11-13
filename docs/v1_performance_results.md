@@ -1261,6 +1261,153 @@ default ✓ [======================================] 0000/1000 VUs  15s
 
 </details>
 
+
+### Cancel join request
+
+These profiles call `DELETE /conversations/:id/join-requests/me` with the
+saved user/request pairs. A successful cancellation returns the request ID and
+`CANCELLED` status. If a profile cycles through the fixture, the route's
+expected already-cancelled conflict is accepted. All recorded checks passed
+and HTTP request failure rates were zero.
+
+| Profile | VU target sequence | Elapsed | Active VUs | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 30.5 s | 29-450 | 9,972 / 9,972 | 327.11 req/s | 100% (9,972/9,972) | 0 (0%) | 3.4 MB (112 kB/s) | 5.0 MB (164 kB/s) |
+| Stress | 5 s to 100; 2 s hold; 5 s to 200; 5 s to 400; 3 s hold; 5 s to 800; 5 s hold; 10 s down to 200 | 40.3 s | 19-800 | 13,420 / 13,420 | 333.04 req/s | 100% (13,420/13,420) | 0 (0%) | 4.6 MB (114 kB/s) | 6.7 MB (167 kB/s) |
+| Spike | 3 s to 200; 2 s hold; 3 s to 1,000; 2 s hold; 5 s down to 200 | 15.4 s | 57-1,000 | 4,377 / 4,377 | 284.15 req/s | 100% (4,377/4,377) | 0 (0%) | 1.5 MB (97 kB/s) | 2.2 MB (142 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 1.02 s | 12.38 ms | 1.21 s | 1.48 s | 1.67 s | 2.04 s |
+| Load | Iteration | 1.02 s | 12.99 ms | 1.21 s | 1.48 s | 1.67 s | 2.04 s |
+| Stress | HTTP request | 1.22 s | 9.10 ms | 1.12 s | 2.36 s | 2.37 s | 2.45 s |
+| Stress | Iteration | 1.22 s | 9.35 ms | 1.12 s | 2.36 s | 2.37 s | 2.45 s |
+| Spike | HTTP request | 1.95 s | 23.94 ms | 1.92 s | 4.28 s | 5.17 s | 5.55 s |
+| Spike | Iteration | 1.95 s | 24.51 ms | 1.92 s | 4.28 s | 5.17 s | 5.56 s |
+
+<details>
+<summary>Raw k6 output</summary>
+
+#### load test
+
+```text
+stages: [
+    { duration: '15s', target: 450 },
+    { duration: '15s', target: 450 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 9972    327.114873/s
+    checks_succeeded...: 100.00% 9972 out of 9972
+    checks_failed......: 0.00%   0 out of 9972
+
+    ✓ cancel-join-request succeeds or returns an already-cancelled conflict
+
+    HTTP
+    http_req_duration..............: avg=1.02s min=12.38ms med=1.21s max=2.04s p(90)=1.48s p(95)=1.67s
+      { expected_response:true }...: avg=1.02s min=12.38ms med=1.21s max=2.04s p(90)=1.48s p(95)=1.67s
+    http_req_failed................: 0.00%  0 out of 9972
+    http_reqs......................: 9972   327.114873/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.02s min=12.99ms med=1.21s max=2.04s p(90)=1.48s p(95)=1.67s
+    iterations.....................: 9972   327.114873/s
+    vus............................: 450    min=29        max=450
+    vus_max........................: 450    min=450       max=450
+
+    NETWORK
+    data_received..................: 3.4 MB 112 kB/s
+    data_sent......................: 5.0 MB 164 kB/s
+
+running (0m30.5s), 000/450 VUs, 9972 complete and 0 interrupted iterations
+default ✓ [======================================] 000/450 VUs  30s
+```
+
+#### stress test
+
+```text
+stages: [
+    { duration: '5s', target: 100 },
+    { duration: '2s', target: 100 },
+    { duration: '5s', target: 200 },
+    { duration: '5s', target: 400 },
+    { duration: '3s', target: 400 },
+    { duration: '5s', target: 800 },
+    { duration: '5s', target: 800 },
+    { duration: '10s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 13420   333.036864/s
+    checks_succeeded...: 100.00% 13420 out of 13420
+    checks_failed......: 0.00%   0 out of 13420
+
+    ✓ cancel-join-request succeeds or returns an already-cancelled conflict
+
+    HTTP
+    http_req_duration..............: avg=1.22s min=9.1ms  med=1.12s max=2.45s p(90)=2.36s p(95)=2.37s
+      { expected_response:true }...: avg=1.22s min=9.1ms  med=1.12s max=2.45s p(90)=2.36s p(95)=2.37s
+    http_req_failed................: 0.00%  0 out of 13420
+    http_reqs......................: 13420  333.036864/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.22s min=9.35ms med=1.12s max=2.45s p(90)=2.36s p(95)=2.37s
+    iterations.....................: 13420  333.036864/s
+    vus............................: 228    min=19         max=800
+    vus_max........................: 800    min=800        max=800
+
+    NETWORK
+    data_received..................: 4.6 MB 114 kB/s
+    data_sent......................: 6.7 MB 167 kB/s
+
+running (0m40.3s), 000/800 VUs, 13420 complete and 0 interrupted iterations
+default ✓ [======================================] 000/800 VUs  40s
+```
+
+#### spike test
+
+```text
+stages: [
+    { duration: '3s', target: 200 },
+    { duration: '2s', target: 200 },
+    { duration: '3s', target: 1_000 },
+    { duration: '2s', target: 1_000 },
+    { duration: '5s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 4377    284.152538/s
+    checks_succeeded...: 100.00% 4377 out of 4377
+    checks_failed......: 0.00%   0 out of 4377
+
+    ✓ cancel-join-request succeeds or returns an already-cancelled conflict
+
+    HTTP
+    http_req_duration..............: avg=1.95s min=23.94ms med=1.92s max=5.55s p(90)=4.28s p(95)=5.17s
+      { expected_response:true }...: avg=1.95s min=23.94ms med=1.92s max=5.55s p(90)=4.28s p(95)=5.17s
+    http_req_failed................: 0.00%  0 out of 4377
+    http_reqs......................: 4377   284.152538/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.95s min=24.51ms med=1.92s max=5.56s p(90)=4.28s p(95)=5.17s
+    iterations.....................: 4377   284.152538/s
+    vus............................: 328    min=57        max=1000
+    vus_max........................: 1000   min=1000      max=1000
+
+    NETWORK
+    data_received..................: 1.5 MB 97 kB/s
+    data_sent......................: 2.2 MB 142 kB/s
+
+running (15.4s), 0000/1000 VUs, 4377 complete and 0 interrupted iterations
+default ✓ [======================================] 0000/1000 VUs  15s
+```
+
+</details>
+
+
 ## Mixed service
 
 ### Test method and how to read the profiles

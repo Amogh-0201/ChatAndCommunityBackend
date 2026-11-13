@@ -247,6 +247,64 @@ k6 run k6_tests/conversation_service/get_conversation_join_req/get_conversation_
 `CONVERSATION_GROUPS_FILE` can override the default API, token pool, and data
 files.
 
+#### Cancel join-request test data
+
+The generator creates 30,000 pending requests using users 5,501-11,000 and
+`REQUEST` groups. Every requester gets five or six requests for distinct
+groups. The collector then saves each request ID and conversation ID under its
+requesting user in `scripts/.conversation-test-cancel-requests.json`. Prepare
+the user, group, and token-pool files first, then run against the isolated local
+test database:
+
+```powershell
+$env:SEED_TEST_DATABASE = "I_CONFIRMED_THIS_IS_THE_ISOLATED_TEST_DATABASE"
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/create-conversation-test-cancel-requests.mjs
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-cancel-requests.mjs
+Remove-Item Env:SEED_TEST_DATABASE
+```
+
+The generator saves progress and can resume after interruption. Already
+pending pairs count toward the target; pairs where the user is already a group
+member or has an approved request are skipped. Rerunning after a completed
+generation starts a fresh batch, reopening cancelled requests where possible.
+The collector marks its output complete only after it finds all 30,000 planned
+pending requests. `CONVERSATION_CANCEL_REQUEST_PLAN_FILE` and
+`CONVERSATION_CANCEL_REQUESTS_FILE` can override the plan and output paths.
+
+#### Cancel join-request performance tests
+
+The profiles use the saved 30,000-request fixture and authenticate as each
+requesting user. Each request is selected once before the test wraps; if a
+profile runs more than 30,000 iterations, the expected “not pending” conflict
+from a repeated cancellation is accepted. Since cancellation changes request
+state, regenerate and recollect the fixture before each profile:
+
+```powershell
+$env:SEED_TEST_DATABASE = "I_CONFIRMED_THIS_IS_THE_ISOLATED_TEST_DATABASE"
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/create-conversation-test-cancel-requests.mjs
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-cancel-requests.mjs
+k6 run k6_tests/conversation_service/cancel_join_request/cancel_join_request_load.js
+
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/create-conversation-test-cancel-requests.mjs
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-cancel-requests.mjs
+k6 run k6_tests/conversation_service/cancel_join_request/cancel_join_request_stress.js
+
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/create-conversation-test-cancel-requests.mjs
+node scripts/auth-token-pool.mjs refresh 11000
+node scripts/get-conversation-test-cancel-requests.mjs
+k6 run k6_tests/conversation_service/cancel_join_request/cancel_join_request_spike.js
+Remove-Item Env:SEED_TEST_DATABASE
+```
+
+`CONVERSATION_CANCEL_REQUESTS_FILE` can override the fixture path.
+
 #### Review conversation join-request performance tests
 
 These profiles use the saved join-request file and authenticate as each
