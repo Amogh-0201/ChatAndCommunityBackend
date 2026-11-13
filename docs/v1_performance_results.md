@@ -1489,3 +1489,76 @@ The recorded spike runs used a 2-second hold at 200 VUs before a 3-second
 ramp to 1,000 VUs. The current mixed-service spike scripts use a different
 stage sequence, so treat these as results for the recorded profiles rather
 than an exact measurement of the current script configuration.
+
+
+
+## Socket IO tests
+
+### Concurrent Connection Limit Test
+
+#### 11,000 concurrent connections
+
+The local run established all 11,000 authenticated Socket.IO connections and
+reported all 11,000 still active after the final 15-second observation. There
+were no failed handshakes or unexpected disconnects. The run ended at its
+configured maximum; it did **not** find the system's failure limit.
+
+| Test parameter | Recorded value |
+| --- | --- |
+| Run time | 2026-11-13 22:54:31–22:58:10 UTC (3 min 38.6 s) |
+| Target | `http://localhost:3000` |
+| Connection schedule | 1,000 new connections per stage, from 1,000 through 11,000; earlier connections remained open |
+| Connection batches | 100 at a time, 200 ms between batches |
+| Observation | 15 seconds at each stage |
+| Connection timeout | 10 seconds |
+| Transport / reconnection | WebSocket only; automatic reconnection disabled |
+| Application events | None sent |
+| Outcome | 11,000/11,000 connected (100%); 11,000 active after final observation; 0 failures; 0 unexpected disconnects |
+| Configured client RSS guard | 512 MB |
+
+Connection-establishment latency is measured from initiating each connection
+until the Socket.IO `connect` event; it is not message or acknowledgement
+latency. Across all 11,000 connection attempts:
+
+| Metric | Latency |
+| --- | ---: |
+| Minimum | 125.11 ms |
+| Average | 234.26 ms |
+| Median (p50) | 222.89 ms |
+| p90 | 303.43 ms |
+| p95 | 348.45 ms |
+| p99 | 516.30 ms |
+| Maximum | 638.39 ms |
+
+Per-stage establishment latency:
+
+| Active target | New connections | Average | p95 | p99 | Maximum |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 1,000 | 1,000 | 194.51 ms | 251.74 ms | 272.16 ms | 299.17 ms |
+| 2,000 | 1,000 | 203.83 ms | 253.32 ms | 277.69 ms | 324.53 ms |
+| 3,000 | 1,000 | 266.84 ms | 539.18 ms | 565.65 ms | 638.39 ms |
+| 4,000 | 1,000 | 213.31 ms | 271.77 ms | 306.52 ms | 312.12 ms |
+| 5,000 | 1,000 | 230.10 ms | 347.72 ms | 378.11 ms | 388.39 ms |
+| 6,000 | 1,000 | 239.85 ms | 297.43 ms | 303.43 ms | 310.60 ms |
+| 7,000 | 1,000 | 232.24 ms | 307.87 ms | 320.73 ms | 323.86 ms |
+| 8,000 | 1,000 | 208.75 ms | 308.71 ms | 464.01 ms | 496.77 ms |
+| 9,000 | 1,000 | 267.72 ms | 476.11 ms | 560.88 ms | 604.10 ms |
+| 10,000 | 1,000 | 226.72 ms | 265.52 ms | 299.68 ms | 303.44 ms |
+| 11,000 | 1,000 | 293.01 ms | 369.70 ms | 409.47 ms | 411.91 ms |
+
+**Interpretation and limit:** 11,000 is the highest count successfully tested
+on this local setup, not an architectural or measured maximum. Since the run
+stopped at the configured cap without connection failures, it establishes that
+this setup handled 11,000 concurrent sockets for the recorded test, but does
+not establish what higher counts it could support. Supporting more is
+plausible, but remains unverified and depends on the server, database, load
+generator, and deployment resources.
+
+During the run, local monitoring noted about 97% system RAM use and roughly
+1,250 MB used by the Docker backend. Treat memory pressure as a limit of this
+test environment; do not increase the load on this machine while it is near
+saturation. CPU and PostgreSQL connection/resource metrics were not recorded,
+so those bottlenecks cannot be assessed from this run.
+
+The result report contains the per-attempt measurements and stage details:
+[concurrent-connections-2026-11-13T22-54-31-654Z.json](../socketIO_tests/concurrent_connection_limit/results/concurrent-connections-2026-11-13T22-54-31-654Z.json).

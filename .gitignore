@@ -69,3 +69,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Local conversation API test data
 /scripts/.conversation-test-*.json
 /scripts/.conversation-test-*.json.*
+/socketIO_tests/concurrent_connection_limit/results/
