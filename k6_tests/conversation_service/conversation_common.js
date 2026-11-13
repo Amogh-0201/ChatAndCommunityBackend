@@ -89,6 +89,20 @@ export function getConversationUserTokenById(userId, username) {
   );
 }
 
+export function getConversationUserForIteration(iteration) {
+  if (!Number.isSafeInteger(iteration) || iteration < 0) {
+    throw new Error(
+      `iteration must be a non-negative integer; received ${iteration}.`,
+    );
+  }
+
+  const user = conversationUsers[iteration % conversationUsers.length];
+  return {
+    user,
+    token: getConversationUserTokenById(user.id, user.username),
+  };
+}
+
 export function getUserForToken(entry) {
   const index = getUserIndex(entry.username);
   if (index < 0 || conversationUsers[index]?.username !== entry.username) {

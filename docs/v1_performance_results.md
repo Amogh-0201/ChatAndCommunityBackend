@@ -129,6 +129,9 @@ with resource telemetry.
 
 ### Logout-all
 
+Only the stress profile is recorded for this route; no load or spike result was
+saved, so none is reported here.
+
 The logout-all stress profile ramped through 100, 200, 400, and 600 VUs, then
 back to 100 over 25 seconds. It made 2,963 HTTP requests: 2,425 succeeded and
 538 returned HTTP 500 (18.15% failure rate). Successful-request p95 latency
@@ -392,12 +395,14 @@ k6 reported 45.2 s elapsed). The spike held 1,000 VUs for 2 seconds after a
 ### Test scope and interpretation
 
 These runs exercise authenticated `POST /conversations/direct/:otherUserId`,
-`POST /conversations/groups`, `POST /conversations/:id/join`, and
-`GET /conversations/:id/join-requests`. Each k6 iteration sends one HTTP
-request. The direct-conversation and group profiles randomly select an eligible
-account for each iteration; the direct-conversation profile also selects a
-different participant at random. Selection is with replacement, so a pair can
-recur.
+`POST /conversations/groups`, `POST /conversations/:id/join`,
+`GET /conversations/:id/join-requests`,
+`PATCH /conversations/:id/join-requests/:requestId`, `GET /conversations`,
+`GET /conversations/:id`, and `PATCH /conversations/:id`. Each k6 iteration
+sends one HTTP request. The direct-conversation and group profiles randomly
+select an eligible account for each iteration; the direct-conversation profile
+also selects a different participant at random. Selection is with replacement,
+so a pair can recur.
 The [direct-conversation profiles](../k6_tests/conversation_service/get_or_create_direct_conversations/)
 and [group profiles](../k6_tests/conversation_service/create_groups/) check
 HTTP 201 responses and the expected conversation members or group owner.
@@ -406,6 +411,14 @@ a random user and group; expected duplicate or already-member conflicts count
 as valid responses. The
 [join-request listing profiles](../k6_tests/conversation_service/get_conversation_join_req/)
 cycle through saved groups and authenticate as each group's owner.
+The [review profiles](../k6_tests/conversation_service/review_conversation_join_req/)
+use the saved request list and authenticate as the corresponding group owner.
+The [conversation-list profiles](../k6_tests/conversation_service/get_my_conversations/)
+cycle through all 11,000 users. The
+[conversation-details profiles](../k6_tests/conversation_service/get_conversation_details/)
+cycle through saved groups and authenticated users, while the
+[group-update profiles](../k6_tests/conversation_service/update_group/) cycle
+through groups and authenticate as each owner.
 
 The direct endpoint is a get-or-create operation. Its response does not indicate
 whether a request created a conversation or returned an existing one, so the
@@ -509,7 +522,35 @@ latency increasing to 6.29 seconds in the 1,000-VU spike. These are exploratory
 local results; no performance thresholds or system-resource metrics were
 recorded.
 
-### Review Conversation Join Requests
+### Review conversation join requests
+
+Each iteration selects a saved pending request, authenticates as that group's
+owner, and randomly approves or rejects the request. The collector must be run
+again before each profile to refresh pending requests. Repeated reviews that
+return the expected already-reviewed conflict are counted as valid checks.
+
+| Profile | VU target sequence | Elapsed | Active VUs | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 31.0 s | 28-450 | 7,783 / 7,783 | 250.77 req/s | 100% (7,783/7,783) | 0 (0%) | 3.9 MB (127 kB/s) | 4.7 MB (152 kB/s) |
+| Stress | 3 s to 100; 2 s hold; 3 s to 200; 3 s to 400; 2 s hold; 5 s to 800; 5 s hold; 5 s down to 200 | 28.7 s | 30-800 | 6,802 / 6,802 | 237.27 req/s | 100% (6,802/6,802) | 0 (0%) | 3.4 MB (120 kB/s) | 4.1 MB (143 kB/s) |
+| Spike | 3 s to 200; 2 s hold; 3 s to 1,000; 2 s hold; 5 s down to 200 | 15.8 s | 58-1,000 | 3,655 / 3,655 | 230.90 req/s | 100% (3,655/3,655) | 0 (0%) | 1.8 MB (117 kB/s) | 2.2 MB (140 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 1.33 s | 17.29 ms | 1.63 s | 1.78 s | 1.86 s | 1.94 s |
+| Load | Iteration | 1.33 s | 17.31 ms | 1.63 s | 1.78 s | 1.86 s | 1.94 s |
+| Stress | HTTP request | 1.86 s | 11.76 ms | 2.16 s | 3.16 s | 3.18 s | 3.22 s |
+| Stress | Iteration | 1.86 s | 12.29 ms | 2.16 s | 3.16 s | 3.18 s | 3.22 s |
+| Spike | HTTP request | 2.40 s | 29.88 ms | 2.62 s | 4.37 s | 5.01 s | 5.35 s |
+| Spike | Iteration | 2.40 s | 31.25 ms | 2.62 s | 4.37 s | 5.01 s | 5.35 s |
+
+The recorded stress run used a shorter stage schedule than the current
+`review_conversation_join_req_stress.js` profile. The table records the
+schedule actually used; rerun the stress profile before comparing it directly
+with the current script.
+
+<details>
+<summary>Raw k6 output</summary>
 
 #### load test
 stages: [
@@ -517,7 +558,7 @@ stages: [
     { duration: '15s', target: 450 },
   ]
 
-   TOTAL RESULTS 
+   TOTAL RESULTS
 
     checks_total.......: 7783    250.774589/s
     checks_succeeded...: 100.00% 7783 out of 7783
@@ -557,7 +598,7 @@ stages: [
     { duration: '5s', target: 200 },
   ]
 
-TOTAL RESULTS 
+TOTAL RESULTS
 
     checks_total.......: 6802    237.269558/s
     checks_succeeded...: 100.00% 6802 out of 6802
@@ -594,7 +635,7 @@ stages: [
     { duration: '5s', target: 200 },
   ]
 
-TOTAL RESULTS 
+TOTAL RESULTS
 
     checks_total.......: 3655    230.901522/s
     checks_succeeded...: 100.00% 3655 out of 3655
@@ -621,6 +662,458 @@ TOTAL RESULTS
 
 running (15.8s), 0000/1000 VUs, 3655 complete and 0 interrupted iterations
 default ✓ [======================================] 0000/1000 VUs  15s
+
+</details>
+
+### Get my conversations
+
+This endpoint returns every conversation for the authenticated user, including
+member summaries, member counts, and the most recent message. The test
+sequentially cycles through the 11,000 saved users and wraps with modulo.
+
+| Profile | VU target sequence | Elapsed | Active VUs | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 33.1 s | 29-450 | 2,219 / 2,219 | 67.08 req/s | 100% (2,219/2,219) | 0 (0%) | 17 MB (520 kB/s) | 983 kB (30 kB/s) |
+| Stress | 5 s to 100; 2 s hold; 5 s to 200; 5 s to 400; 3 s hold; 5 s to 800; 5 s hold; 10 s down to 200 | 42.7 s | 18-800 | 2,776 / 2,776 | 64.99 req/s | 100% (2,776/2,776) | 0 (0%) | 22 MB (504 kB/s) | 1.2 MB (29 kB/s) |
+| Spike | 3 s to 200; 2 s hold; 3 s to 1,000; 2 s hold; 5 s down to 200 | 23.3 s | 58-1,000 | 1,418 / 1,418 | 60.90 req/s | 100% (1,418/1,418) | 0 (0%) | 11 MB (473 kB/s) | 628 kB (27 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 5.01 s | 103.70 ms | 6.15 s | 6.69 s | 6.87 s | 7.14 s |
+| Load | Iteration | 5.01 s | 104.22 ms | 6.15 s | 6.69 s | 6.87 s | 7.14 s |
+| Stress | HTTP request | 6.73 s | 65.48 ms | 7.08 s | 12.18 s | 12.36 s | 12.52 s |
+| Stress | Iteration | 6.73 s | 67.35 ms | 7.08 s | 12.18 s | 12.36 s | 12.54 s |
+| Spike | HTTP request | 11.87 s | 125.07 ms | 15.61 s | 16.37 s | 16.38 s | 16.43 s |
+| Spike | Iteration | 11.87 s | 127.25 ms | 15.61 s | 16.37 s | 16.39 s | 16.43 s |
+
+The request transferred approximately 8 kB on average in each profile. The
+route was much slower than the other conversation endpoints in these runs:
+the details load profile completed 365 req/s at 1.28 s p95, and group update
+completed 330 req/s at 1.44 s p95. The list route stayed near 61-67 req/s,
+with p95 rising from 6.87 s at load to 16.38 s in the spike. All checks passed
+and there were no HTTP failures; this is severe latency/throughput
+degradation, not an observed correctness failure.
+
+The implementation in
+[`ConversationService.getMyConversations`](../src/modules/conversation/conversation.service.ts)
+does use Prisma `findMany`, but the operation is more than a simple list:
+it filters conversations through a membership relation, sorts by
+`Conversation.updatedAt`, loads each conversation's members and each member's
+user summary, counts members, and fetches the latest message. It is also
+unpaginated. The membership filter has a supporting
+[`ConversationMember(userId, joinedAt)` index](../prisma/schema.prisma), but
+the recorded results do not reveal the generated SQL plan or whether Prisma
+executes the relation reads as SQL joins, subqueries, or separate queries.
+The schema also has a `(type, updatedAt)` conversation index, but this query
+does not filter by type; the actual cost of sorting its result must be checked
+in the query plan.
+
+**What the results establish:** this endpoint's query/serialization path is
+the standout bottleneck in the tested workload. They do not prove that the
+database join alone is the cause or that the whole system has a general
+failure. The other routes succeeded at several times the throughput, while
+this route returned 100% successful responses. The roughly 8 kB response is
+larger than the details response, but payload size alone does not explain the
+observed latency. No SQL timing, `EXPLAIN (ANALYZE, BUFFERS)`, database
+connection/wait metrics, Node CPU/event-loop metrics, or load-generator
+resource measurements were captured. Those are needed to distinguish a slow
+query plan or relation loading from Prisma pool wait, database contention,
+serialization, or host saturation.
+
+For a conclusive diagnosis, capture the SQL generated by this exact
+`findMany`, run its plan with `EXPLAIN (ANALYZE, BUFFERS)` against the same
+seeded database, and measure query time separately from total HTTP time while
+recording PostgreSQL connections/waits and API CPU/event-loop utilization.
+
+<details>
+<summary>Raw k6 output</summary>
+
+#### load test
+stages: [
+    { duration: '15s', target: 450 },
+    { duration: '15s', target: 450 },
+  ]
+
+   TOTAL RESULTS
+
+    checks_total.......: 2219    67.08133/s
+    checks_succeeded...: 100.00% 2219 out of 2219
+    checks_failed......: 0.00%   0 out of 2219
+
+    ✓ get-my-conversations returns a conversation list
+
+    HTTP
+    http_req_duration..............: avg=5.01s min=103.7ms  med=6.15s max=7.14s p(90)=6.69s p(95)=6.87s
+      { expected_response:true }...: avg=5.01s min=103.7ms  med=6.15s max=7.14s p(90)=6.69s p(95)=6.87s
+    http_req_failed................: 0.00%  0 out of 2219
+    http_reqs......................: 2219   67.08133/s
+
+    EXECUTION
+    iteration_duration.............: avg=5.01s min=104.22ms med=6.15s max=7.14s p(90)=6.69s p(95)=6.87s
+    iterations.....................: 2219   67.08133/s
+    vus............................: 112    min=29        max=450
+    vus_max........................: 450    min=450       max=450
+
+    NETWORK
+    data_received..................: 17 MB  520 kB/s
+    data_sent......................: 983 kB 30 kB/s
+
+
+running (0m33.1s), 000/450 VUs, 2219 complete and 0 interrupted iterations
+default ✓ [======================================] 000/450 VUs  30s
+
+#### stress test
+stages: [
+    { duration: '5s', target: 100 },
+    { duration: '2s', target: 100 },
+    { duration: '5s', target: 200 },
+    { duration: '5s', target: 400 },
+    { duration: '3s', target: 400 },
+    { duration: '5s', target: 800 },
+    { duration: '5s', target: 800 },
+    { duration: '10s', target: 200 },
+  ]
+
+  TOTAL RESULTS
+
+    checks_total.......: 2776    64.991029/s
+    checks_succeeded...: 100.00% 2776 out of 2776
+    checks_failed......: 0.00%   0 out of 2776
+
+    ✓ get-my-conversations returns a conversation list
+
+    HTTP
+    http_req_duration..............: avg=6.73s min=65.48ms med=7.08s max=12.52s p(90)=12.18s p(95)=12.36s
+      { expected_response:true }...: avg=6.73s min=65.48ms med=7.08s max=12.52s p(90)=12.18s p(95)=12.36s
+    http_req_failed................: 0.00%  0 out of 2776
+    http_reqs......................: 2776   64.991029/s
+
+    EXECUTION
+    iteration_duration.............: avg=6.73s min=67.35ms med=7.08s max=12.54s p(90)=12.18s p(95)=12.36s
+    iterations.....................: 2776   64.991029/s
+    vus............................: 263    min=18        max=800
+    vus_max........................: 800    min=800       max=800
+
+    NETWORK
+    data_received..................: 22 MB  504 kB/s
+    data_sent......................: 1.2 MB 29 kB/s
+
+
+running (0m42.7s), 000/800 VUs, 2776 complete and 0 interrupted iterations
+default ✓ [======================================] 000/800 VUs  40s
+
+#### spike test
+stages: [
+    { duration: '3s', target: 200 },
+    { duration: '2s', target: 200 },
+    { duration: '3s', target: 1000 },
+    { duration: '2s', target: 1000 },
+    { duration: '5s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 1418    60.90194/s
+    checks_succeeded...: 100.00% 1418 out of 1418
+    checks_failed......: 0.00%   0 out of 1418
+
+    ✓ get-my-conversations returns a conversation list
+
+    HTTP
+    http_req_duration..............: avg=11.87s min=125.07ms med=15.61s max=16.43s p(90)=16.37s p(95)=16.38s
+      { expected_response:true }...: avg=11.87s min=125.07ms med=15.61s max=16.43s p(90)=16.37s p(95)=16.38s
+    http_req_failed................: 0.00%  0 out of 1418
+    http_reqs......................: 1418   60.90194/s
+
+    EXECUTION
+    iteration_duration.............: avg=11.87s min=127.25ms med=15.61s max=16.43s p(90)=16.37s p(95)=16.39s
+    iterations.....................: 1418   60.90194/s
+    vus............................: 428    min=58        max=1000
+    vus_max........................: 1000   min=1000      max=1000
+
+    NETWORK
+    data_received..................: 11 MB  473 kB/s
+    data_sent......................: 628 kB 27 kB/s
+
+
+running (23.3s), 0000/1000 VUs, 1418 complete and 0 interrupted iterations
+default ✓ [======================================] 0000/1000 VUs  15s
+
+</details>
+
+### Get conversation details
+
+The test cycles through the saved groups and authenticates as users in
+sequence. Group details can be read by any authenticated user.
+
+| Profile | VU target sequence | Elapsed | Active VUs | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 30.5 s | 29-450 | 11,151 / 11,151 | 365.28 req/s | 100% (11,151/11,151) | 0 (0%) | 12 MB (401 kB/s) | 5.4 MB (175 kB/s) |
+| Stress | 5 s to 100; 2 s hold; 5 s to 200; 5 s to 400; 3 s hold; 5 s to 800; 5 s hold; 10 s down to 200 | 40.3 s | 19-800 | 13,884 / 13,884 | 344.92 req/s | 100% (13,884/13,884) | 0 (0%) | 15 MB (383 kB/s) | 6.7 MB (166 kB/s) |
+| Spike | 3 s to 200; 2 s hold; 3 s to 1,000; 2 s hold; 5 s down to 200 | 15.3 s | 59-1,000 | 5,145 / 5,145 | 335.87 req/s | 100% (5,145/5,145) | 0 (0%) | 5.8 MB (376 kB/s) | 2.5 MB (161 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 919.89 ms | 5.32 ms | 1.10 s | 1.23 s | 1.28 s | 1.38 s |
+| Load | Iteration | 920.59 ms | 6.37 ms | 1.10 s | 1.23 s | 1.28 s | 1.38 s |
+| Stress | HTTP request | 1.17 s | 6.12 ms | 1.06 s | 2.17 s | 2.45 s | 2.69 s |
+| Stress | Iteration | 1.17 s | 7.27 ms | 1.06 s | 2.17 s | 2.45 s | 2.69 s |
+| Spike | HTTP request | 1.62 s | 15.45 ms | 1.60 s | 2.85 s | 3.97 s | 4.59 s |
+| Spike | Iteration | 1.62 s | 15.99 ms | 1.60 s | 2.85 s | 3.97 s | 4.60 s |
+
+<details>
+<summary>Raw k6 output</summary>
+stages: [
+    { duration: '15s', target: 450 },
+    { duration: '15s', target: 450 },
+  ]
+
+  TOTAL RESULTS
+
+    checks_total.......: 11151   365.275723/s
+    checks_succeeded...: 100.00% 11151 out of 11151
+    checks_failed......: 0.00%   0 out of 11151
+
+    ✓ get-conversation-details returns the selected group
+
+    HTTP
+    http_req_duration..............: avg=919.89ms min=5.32ms med=1.1s max=1.38s p(90)=1.23s p(95)=1.28s
+      { expected_response:true }...: avg=919.89ms min=5.32ms med=1.1s max=1.38s p(90)=1.23s p(95)=1.28s
+    http_req_failed................: 0.00%  0 out of 11151
+    http_reqs......................: 11151  365.275723/s
+
+    EXECUTION
+    iteration_duration.............: avg=920.59ms min=6.37ms med=1.1s max=1.38s p(90)=1.23s p(95)=1.28s
+    iterations.....................: 11151  365.275723/s
+    vus............................: 450    min=29         max=450
+    vus_max........................: 450    min=450        max=450
+
+    NETWORK
+    data_received..................: 12 MB  401 kB/s
+    data_sent......................: 5.4 MB 175 kB/s
+
+
+running (0m30.5s), 000/450 VUs, 11151 complete and 0 interrupted iterations
+default ✓ [======================================] 000/450 VUs  30s
+
+#### stress test
+stages: [
+    { duration: '5s', target: 100 },
+    { duration: '2s', target: 100 },
+    { duration: '5s', target: 200 },
+    { duration: '5s', target: 400 },
+    { duration: '3s', target: 400 },
+    { duration: '5s', target: 800 },
+    { duration: '5s', target: 800 },
+    { duration: '10s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 13884   344.923684/s
+    checks_succeeded...: 100.00% 13884 out of 13884
+    checks_failed......: 0.00%   0 out of 13884
+
+    ✓ get-conversation-details returns the selected group
+
+    HTTP
+    http_req_duration..............: avg=1.17s min=6.12ms med=1.06s max=2.69s p(90)=2.17s p(95)=2.45s
+      { expected_response:true }...: avg=1.17s min=6.12ms med=1.06s max=2.69s p(90)=2.17s p(95)=2.45s
+    http_req_failed................: 0.00%  0 out of 13884
+    http_reqs......................: 13884  344.923684/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.17s min=7.27ms med=1.06s max=2.69s p(90)=2.17s p(95)=2.45s
+    iterations.....................: 13884  344.923684/s
+    vus............................: 231    min=19         max=800
+    vus_max........................: 800    min=800        max=800
+
+    NETWORK
+    data_received..................: 15 MB  383 kB/s
+    data_sent......................: 6.7 MB 166 kB/s
+
+
+running (0m40.3s), 000/800 VUs, 13884 complete and 0 interrupted iterations
+default ✓ [======================================] 000/800 VUs  40s
+
+#### spike test
+stages: [
+    { duration: '3s', target: 200 },
+    { duration: '2s', target: 200 },
+    { duration: '3s', target: 1000 },
+    { duration: '2s', target: 1000 },
+    { duration: '5s', target: 200 },
+  ]
+
+  TOTAL RESULTS
+
+    checks_total.......: 5145    335.87317/s
+    checks_succeeded...: 100.00% 5145 out of 5145
+    checks_failed......: 0.00%   0 out of 5145
+
+    ✓ get-conversation-details returns the selected group
+
+    HTTP
+    http_req_duration..............: avg=1.62s min=15.45ms med=1.6s max=4.59s p(90)=2.85s p(95)=3.97s
+      { expected_response:true }...: avg=1.62s min=15.45ms med=1.6s max=4.59s p(90)=2.85s p(95)=3.97s
+    http_req_failed................: 0.00%  0 out of 5145
+    http_reqs......................: 5145   335.87317/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.62s min=15.99ms med=1.6s max=4.6s  p(90)=2.85s p(95)=3.97s
+    iterations.....................: 5145   335.87317/s
+    vus............................: 304    min=59        max=1000
+    vus_max........................: 1000   min=1000      max=1000
+
+    NETWORK
+    data_received..................: 5.8 MB 376 kB/s
+    data_sent......................: 2.5 MB 161 kB/s
+
+
+running (15.3s), 0000/1000 VUs, 5145 complete and 0 interrupted iterations
+default ✓ [======================================] 0000/1000 VUs  15s
+
+</details>
+
+### Update group
+
+The test cycles through saved groups and authenticates as each group's owner.
+It submits the existing group name and `REQUEST` join policy. The settings
+remain unchanged, although the route may advance `updatedAt`.
+
+| Profile | VU target sequence | Elapsed | Active VUs | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 15 s ramp to 450; 15 s hold at 450 | 30.5 s | 29-450 | 10,068 / 10,068 | 329.99 req/s | 100% (10,068/10,068) | 0 (0%) | 3.8 MB (123 kB/s) | 5.9 MB (194 kB/s) |
+| Stress | 5 s to 100; 2 s hold; 5 s to 200; 5 s to 400; 3 s hold; 5 s to 800; 5 s hold; 10 s down to 200 | 40.2 s | 18-800 | 13,333 / 13,333 | 331.59 req/s | 100% (13,333/13,333) | 0 (0%) | 5.0 MB (124 kB/s) | 7.8 MB (195 kB/s) |
+| Spike | 3 s to 200; 2 s hold; 3 s to 1,000; 2 s hold; 5 s down to 200 | 15.3 s | 57-1,000 | 4,278 / 4,278 | 278.70 req/s | 100% (4,278/4,278) | 0 (0%) | 1.6 MB (104 kB/s) | 2.5 MB (164 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 1.01 s | 10.20 ms | 1.24 s | 1.34 s | 1.44 s | 1.52 s |
+| Load | Iteration | 1.01 s | 11.33 ms | 1.24 s | 1.34 s | 1.44 s | 1.52 s |
+| Stress | HTTP request | 1.22 s | 11.86 ms | 1.17 s | 2.38 s | 2.40 s | 2.45 s |
+| Stress | Iteration | 1.22 s | 12.90 ms | 1.17 s | 2.38 s | 2.40 s | 2.45 s |
+| Spike | HTTP request | 1.98 s | 36.21 ms | 1.89 s | 4.05 s | 4.93 s | 5.31 s |
+| Spike | Iteration | 1.98 s | 38.51 ms | 1.89 s | 4.06 s | 4.93 s | 5.31 s |
+
+<details>
+<summary>Raw k6 output</summary>
+
+#### load test
+stages: [
+    { duration: '15s', target: 450 },
+    { duration: '15s', target: 450 },
+  ]
+
+  TOTAL RESULTS
+
+    checks_total.......: 10068   329.985941/s
+    checks_succeeded...: 100.00% 10068 out of 10068
+    checks_failed......: 0.00%   0 out of 10068
+
+    ✓ update-group keeps the selected group settings
+
+    HTTP
+    http_req_duration..............: avg=1.01s min=10.2ms  med=1.24s max=1.52s p(90)=1.34s p(95)=1.44s
+      { expected_response:true }...: avg=1.01s min=10.2ms  med=1.24s max=1.52s p(90)=1.34s p(95)=1.44s
+    http_req_failed................: 0.00%  0 out of 10068
+    http_reqs......................: 10068  329.985941/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.01s min=11.33ms med=1.24s max=1.52s p(90)=1.34s p(95)=1.44s
+    iterations.....................: 10068  329.985941/s
+    vus............................: 450    min=29         max=450
+    vus_max........................: 450    min=450        max=450
+
+    NETWORK
+    data_received..................: 3.8 MB 123 kB/s
+    data_sent......................: 5.9 MB 194 kB/s
+
+
+running (0m30.5s), 000/450 VUs, 10068 complete and 0 interrupted iterations
+default ✓ [======================================] 000/450 VUs  30s
+
+#### stress test
+stages: [
+    { duration: '5s', target: 100 },
+    { duration: '2s', target: 100 },
+    { duration: '5s', target: 200 },
+    { duration: '5s', target: 400 },
+    { duration: '3s', target: 400 },
+    { duration: '5s', target: 800 },
+    { duration: '5s', target: 800 },
+    { duration: '10s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 13333   331.589858/s
+    checks_succeeded...: 100.00% 13333 out of 13333
+    checks_failed......: 0.00%   0 out of 13333
+
+    ✓ update-group keeps the selected group settings
+
+    HTTP
+    http_req_duration..............: avg=1.22s min=11.86ms med=1.17s max=2.45s p(90)=2.38s p(95)=2.4s
+      { expected_response:true }...: avg=1.22s min=11.86ms med=1.17s max=2.45s p(90)=2.38s p(95)=2.4s
+    http_req_failed................: 0.00%  0 out of 13333
+    http_reqs......................: 13333  331.589858/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.22s min=12.9ms  med=1.17s max=2.45s p(90)=2.38s p(95)=2.4s
+    iterations.....................: 13333  331.589858/s
+    vus............................: 227    min=18         max=800
+    vus_max........................: 800    min=800        max=800
+
+    NETWORK
+    data_received..................: 5.0 MB 124 kB/s
+    data_sent......................: 7.8 MB 195 kB/s
+
+
+running (0m40.2s), 000/800 VUs, 13333 complete and 0 interrupted iterations
+default ✓ [======================================] 000/800 VUs  40s
+
+#### spike test
+stages: [
+    { duration: '3s', target: 200 },
+    { duration: '2s', target: 200 },
+    { duration: '3s', target: 1_000 },
+    { duration: '2s', target: 1_000 },
+    { duration: '5s', target: 200 },
+  ]
+
+TOTAL RESULTS
+
+    checks_total.......: 4278    278.701962/s
+    checks_succeeded...: 100.00% 4278 out of 4278
+    checks_failed......: 0.00%   0 out of 4278
+
+    ✓ update-group keeps the selected group settings
+
+    HTTP
+    http_req_duration..............: avg=1.98s min=36.21ms med=1.89s max=5.31s p(90)=4.05s p(95)=4.93s
+      { expected_response:true }...: avg=1.98s min=36.21ms med=1.89s max=5.31s p(90)=4.05s p(95)=4.93s
+    http_req_failed................: 0.00%  0 out of 4278
+    http_reqs......................: 4278   278.701962/s
+
+    EXECUTION
+    iteration_duration.............: avg=1.98s min=38.51ms med=1.89s max=5.31s p(90)=4.06s p(95)=4.93s
+    iterations.....................: 4278   278.701962/s
+    vus............................: 329    min=57        max=1000
+    vus_max........................: 1000   min=1000      max=1000
+
+    NETWORK
+    data_received..................: 1.6 MB 104 kB/s
+    data_sent......................: 2.5 MB 164 kB/s
+
+
+running (15.3s), 0000/1000 VUs, 4278 complete and 0 interrupted iterations
+default ✓ [======================================] 0000/1000 VUs  15s
+
+</details>
+
+Load results are included for every endpoint with recorded load runs. The
+logout-all endpoint is the exception: only its stress run was saved.
 
 ## Mixed service
 

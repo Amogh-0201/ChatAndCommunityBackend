@@ -273,6 +273,34 @@ Remove-Item Env:SEED_TEST_DATABASE
 The profiles peak at 450, 800, and 1,000 VUs respectively.
 `CONVERSATION_JOIN_REQUESTS_FILE` can override the default request-data file.
 
+#### Conversation list, details, and group-update performance tests
+
+The list profile cycles through the 11,000 conversation test users. The
+details profile cycles through the saved 5,500 groups and authenticates as
+users in sequence; group details are available to any authenticated user. The
+update profile cycles through the same groups and authenticates as each
+group's owner, submitting its existing name and `REQUEST` join policy. The
+group fields remain unchanged, though the update route may advance
+`updatedAt`. Each profile uses the standard load, stress, and spike stages,
+peaking at 450, 800, and 1,000 VUs:
+
+```powershell
+node scripts/auth-token-pool.mjs refresh 11000
+k6 run k6_tests/conversation_service/get_my_conversations/get_my_conversations_load.js
+k6 run k6_tests/conversation_service/get_my_conversations/get_my_conversations_stress.js
+k6 run k6_tests/conversation_service/get_my_conversations/get_my_conversations_spike.js
+k6 run k6_tests/conversation_service/get_conversation_details/get_conversation_details_load.js
+k6 run k6_tests/conversation_service/get_conversation_details/get_conversation_details_stress.js
+k6 run k6_tests/conversation_service/get_conversation_details/get_conversation_details_spike.js
+k6 run k6_tests/conversation_service/update_group/update_group_load.js
+k6 run k6_tests/conversation_service/update_group/update_group_stress.js
+k6 run k6_tests/conversation_service/update_group/update_group_spike.js
+```
+
+These profiles use the saved conversation user and group files.
+`CONVERSATION_USERS_FILE` and `CONVERSATION_GROUPS_FILE` can override their
+default paths.
+
 #### Get-me and update-user performance tests
 
 The authenticated profile and profile-update tests use the same local token
