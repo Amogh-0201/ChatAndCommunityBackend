@@ -70,3 +70,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 /scripts/.conversation-test-*.json
 /scripts/.conversation-test-*.json.*
 /socketIO_tests/concurrent_connection_limit/results/
+/socketIO_tests/connection_req_performance/results/

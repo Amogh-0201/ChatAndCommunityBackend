@@ -1562,3 +1562,197 @@ so those bottlenecks cannot be assessed from this run.
 
 The result report contains the per-attempt measurements and stage details:
 [concurrent-connections-2026-11-13T22-54-31-654Z.json](../socketIO_tests/concurrent_connection_limit/results/concurrent-connections-2026-11-13T22-54-31-654Z.json).
+
+### Connection Requests Performance Test
+
+These five local runs measure **Socket.IO connection attempts**, not application
+event/message latency. Every attempt used a unique token-pool user, WebSocket
+transport, no automatic reconnection, and no application events. Each profile
+made 11,000 attempts in total. The hold duration was changed between runs to
+keep pressure on the local setup.
+
+#### Test setup and interpretation
+
+| Parameter | Recorded value |
+| --- | --- |
+| API target | `http://localhost:3000` |
+| Client / operating system | Node.js v24.20.0 on Windows |
+| System memory reported to Node | 16,487,870,464 bytes (about 15.36 GiB) |
+| Transport / reconnection | WebSocket only; automatic reconnection disabled |
+| Connection timeout | 10 seconds |
+| Maximum attempts / users | 11,000 unique authenticated test users per run |
+| Client RSS guard | 512 MiB |
+| Application events | None |
+| Successful connection definition | Socket.IO `connect` event; a successful socket is held through that round's observation |
+
+The target rate is the intended **attempt dispatch rate**. The report's actual
+rate is what the client runner managed to dispatch; it is not a server-side
+request counter. The client and local API/Docker backend ran on the same
+machine and therefore competed for CPU, memory, and other local resources.
+Server/API CPU, server RSS, database CPU/RSS, PostgreSQL connection count, and
+container throttling were not captured. The client-side event-loop delays and
+actual dispatch rates show that the load generator was also under pressure.
+
+Consequently, these runs do not establish an architectural capacity limit or
+prove that a production deployment fails at the same rates. In particular,
+the two load profiles had zero failed connections, but the client dispatched
+below the 1,000/s target and successful handshakes were not instantaneous.
+Describe this as **11,000 successful attempts in these local 1,000/s-target
+profiles**, not as a verified 1,000 connection requests/second capacity.
+
+#### Run summaries
+
+| Run (UTC) | Hold per round | Duration | Attempts | Connected | Failed | Failure rate | Unexpected disconnects | Active before cleanup | Peak pending attempts | Runner-reported actual dispatch rate |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| Load 1 — 2026-11-14 09:00 | 1 s | 61.81 s | 11,000 | 11,000 | 0 | 0% | 0 | 11,000 | 978 | 728–950/s |
+| Load 2 — 2026-11-14 09:06 | 2 s | 71.99 s | 11,000 | 11,000 | 0 | 0% | 0 | 11,000 | 945 | 740–971/s |
+| Stress 1 — 2026-11-14 09:17 | 2 s | 43.81 s | 11,000 | 7,022 | 3,978 | 36.16% | 0 | 7,022 | 4,000 | 978–2,922/s |
+| Stress 2 — 2026-11-14 09:22 | 3 s | 48.89 s | 11,000 | 7,027 | 3,973 | 36.12% | 0 | 7,027 | 4,000 | 968–2,606/s |
+| Spike — 2026-11-14 09:26 | 4 s | 44.07 s | 11,000 | 3,001 | 7,999 | 72.72% | 0 | 3,001 | 7,999 | 791–3,711/s |
+
+The peak-pending column is the highest number of unresolved client connection
+attempts at once, not the number of active sockets. “Active before cleanup” is
+the number of established sockets at the end of the run before teardown.
+
+#### Per-round outcomes
+
+“Actual/s” is the runner-reported dispatch rate. “Connected p95 / failed p95”
+are connection-establishment and failed-attempt latency percentiles in
+milliseconds; a dash means there were no attempts of that outcome in the round.
+“Active after hold” is the successful sockets still connected after that
+round's observation.
+
+**Load 1 — 1-second holds**
+
+| Round | Target/s | Actual/s | Attempts | Connected | Failed | Failure rate | Connected p95 / failed p95 (ms) | Active after hold |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1,000 | 844 | 1,000 | 1,000 | 0 | 0% | 5,343 / — | 1,000 |
+| 2 | 1,000 | 905 | 1,000 | 1,000 | 0 | 0% | 2,958 / — | 2,000 |
+| 3 | 1,000 | 925 | 1,000 | 1,000 | 0 | 0% | 3,098 / — | 3,000 |
+| 4 | 1,000 | 888 | 1,000 | 1,000 | 0 | 0% | 3,144 / — | 4,000 |
+| 5 | 1,000 | 766 | 1,000 | 1,000 | 0 | 0% | 2,746 / — | 5,000 |
+| 6 | 1,000 | 883 | 1,000 | 1,000 | 0 | 0% | 3,134 / — | 6,000 |
+| 7 | 1,000 | 823 | 1,000 | 1,000 | 0 | 0% | 3,344 / — | 7,000 |
+| 8 | 1,000 | 950 | 1,000 | 1,000 | 0 | 0% | 2,321 / — | 8,000 |
+| 9 | 1,000 | 913 | 1,000 | 1,000 | 0 | 0% | 2,154 / — | 9,000 |
+| 10 | 1,000 | 919 | 1,000 | 1,000 | 0 | 0% | 3,924 / — | 10,000 |
+| 11 | 1,000 | 728 | 1,000 | 1,000 | 0 | 0% | 3,608 / — | 11,000 |
+
+**Load 2 — 2-second holds**
+
+| Round | Target/s | Actual/s | Attempts | Connected | Failed | Failure rate | Connected p95 / failed p95 (ms) | Active after hold |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1,000 | 932 | 1,000 | 1,000 | 0 | 0% | 4,481 / — | 1,000 |
+| 2 | 1,000 | 930 | 1,000 | 1,000 | 0 | 0% | 2,883 / — | 2,000 |
+| 3 | 1,000 | 918 | 1,000 | 1,000 | 0 | 0% | 3,112 / — | 3,000 |
+| 4 | 1,000 | 836 | 1,000 | 1,000 | 0 | 0% | 2,928 / — | 4,000 |
+| 5 | 1,000 | 971 | 1,000 | 1,000 | 0 | 0% | 3,492 / — | 5,000 |
+| 6 | 1,000 | 740 | 1,000 | 1,000 | 0 | 0% | 3,364 / — | 6,000 |
+| 7 | 1,000 | 876 | 1,000 | 1,000 | 0 | 0% | 3,183 / — | 7,000 |
+| 8 | 1,000 | 920 | 1,000 | 1,000 | 0 | 0% | 3,180 / — | 8,000 |
+| 9 | 1,000 | 887 | 1,000 | 1,000 | 0 | 0% | 3,550 / — | 9,000 |
+| 10 | 1,000 | 830 | 1,000 | 1,000 | 0 | 0% | 2,699 / — | 10,000 |
+| 11 | 1,000 | 948 | 1,000 | 1,000 | 0 | 0% | 2,562 / — | 11,000 |
+
+**Stress — 1,000/s, 2,000/s, 4,000/s, 4,000/s**
+
+| Run | Round | Target/s | Actual/s | Attempts | Connected | Failed | Failure rate | Connected p95 / failed p95 (ms) | Active after hold |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Stress 1 | 1 | 1,000 | 978 | 1,000 | 1,000 | 0 | 0% | 4,288 / — | 1,000 |
+| Stress 1 | 2 | 2,000 | 1,643 | 2,000 | 2,000 | 0 | 0% | 6,761 / — | 3,000 |
+| Stress 1 | 3 | 4,000 | 2,922 | 4,000 | 4,000 | 0 | 0% | 8,066 / — | 7,000 |
+| Stress 1 | 4 | 4,000 | 2,108 | 4,000 | 22 | 3,978 | 99.45% | 9,507 / 10,005 | 7,022 |
+| Stress 2 | 1 | 1,000 | 968 | 1,000 | 1,000 | 0 | 0% | 4,203 / — | 1,000 |
+| Stress 2 | 2 | 2,000 | 1,717 | 2,000 | 2,000 | 0 | 0% | 6,550 / — | 3,000 |
+| Stress 2 | 3 | 4,000 | 2,606 | 4,000 | 4,000 | 0 | 0% | 8,754 / — | 7,000 |
+| Stress 2 | 4 | 4,000 | 2,135 | 4,000 | 27 | 3,973 | 99.33% | 9,145 / 10,014 | 7,027 |
+
+All failed handshakes in the final stress round of each run were reported as
+“Connection timed out after 10 seconds.” The two runs therefore show a
+repeatable failure pattern in the *second* 4,000-attempt wave, after the first
+three waves had established 7,000 sockets. This is an observed local-test
+boundary, not proof that 7,000 is a server or architecture limit.
+
+**Spike — 1,000/s, 1,000/s, 8,000/s, 1,000/s**
+
+| Round | Target/s | Actual/s | Attempts | Connected | Failed | Failure rate | Connected p95 / failed p95 (ms) | Active after hold |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1 | 1,000 | 903 | 1,000 | 1,000 | 0 | 0% | 4,314 / — | 1,000 |
+| 2 | 1,000 | 791 | 1,000 | 1,000 | 0 | 0% | 2,909 / — | 2,000 |
+| 3 | 8,000 | 3,711 | 8,000 | 1 | 7,999 | 99.99% | 8 / 10,178 | 2,001 |
+| 4 | 1,000 | 861 | 1,000 | 1,000 | 0 | 0% | 2,836 / — | 3,001 |
+
+All 7,999 failures in the 8,000-attempt spike wave timed out after 10 seconds.
+The single successful handshake is not a meaningful latency sample. The
+following 1,000-attempt wave succeeded, so the spike result demonstrates a
+severe failure for that particular burst on this setup, not a persistent
+failure of all subsequent connection requests.
+
+#### Latency and local load-generator observations
+
+Latency values below are milliseconds from the JSON reports. Connection
+establishment latency is measured until the Socket.IO `connect` event. Failed
+attempt latency is shown separately because the failed handshakes largely
+reached the 10-second timeout. Empty failure fields mean no failed attempts.
+
+| Run | Successful connection latency: min / avg / p50 / p90 / p95 / p99 / max | Failed attempt latency: min / avg / p50 / p90 / p95 / p99 / max |
+| --- | --- | --- |
+| Load 1 | 6 / 2,022 / 1,803 / 3,158 / 3,732 / 5,195 / 5,605 | — |
+| Load 2 | 6 / 2,069 / 2,054 / 3,133 / 3,432 / 4,215 / 4,615 | — |
+| Stress 1 | 7 / 5,567 / 6,869 / 7,753 / 7,977 / 8,126 / 9,507 | 9,999 / 10,001 / 10,001 / 10,004 / 10,005 / 10,008 / 10,014 |
+| Stress 2 | 6 / 5,907 / 7,706 / 8,579 / 8,700 / 8,832 / 9,145 | 9,999 / 10,003 / 10,001 / 10,012 / 10,014 / 10,015 / 10,016 |
+| Spike | 8 / 2,233 / 2,140 / 3,653 / 3,982 / 4,336 / 4,426 | 10,007 / 10,100 / 10,114 / 10,149 / 10,178 / 10,185 / 10,186 |
+
+The client process itself also showed resource pressure:
+
+| Run | Client RSS initial / highest after-round sample / final (MiB) | Heap initial / highest after-round sample / final (MiB) | Client CPU user / system (s) | Client event-loop delay p95 / max (ms) |
+| --- | ---: | ---: | ---: | ---: |
+| Load 1 | 93.5 / 425.0 / 431.4 | 33.5 / 214.3 / 264.2 | 14.66 / 19.58 | 67 / 624 |
+| Load 2 | 87.3 / 403.9 / 410.7 | 40.1 / 210.4 / 257.0 | 15.52 / 19.58 | 59 / 951 |
+| Stress 1 | 89.6 / 427.0 / 434.8 | 33.6 / 268.0 / 284.0 | 12.53 / 17.42 | 32 / 4,475 |
+| Stress 2 | 87.0 / 438.3 / 455.8 | 40.1 / 235.9 / 257.6 | 14.02 / 17.69 | 32 / 3,171 |
+| Spike | 87.3 / 373.0 / 389.3 | 40.2 / 123.9 / 143.4 | 10.77 / 16.19 | 58 / 4,790 |
+
+The event-loop delay and dispatch shortfall are important: the generator was
+sharing this machine with the local backend and was not a neutral, independent
+load source. A target of 8,000 attempts/s resulted in only about 3,711
+attempts/s actually dispatched in the spike wave. The 4,000/s stress waves
+dispatched at about 2,108–2,922/s. Do not interpret target rates as achieved
+rates or attribute every observed limit solely to the backend.
+
+#### Conclusions and follow-up
+
+- Both 1,000/s-target load profiles completed all 11,000 attempts with zero
+  failures and reached 11,000 active sockets before cleanup. The actual
+  per-round dispatch rate was about 728–971/s, and aggregate successful
+  connection p95 was about 3.43–3.73 seconds. This is evidence of successful
+  completion under these local profiles, not a guarantee of zero failures
+  during simultaneous REST or conversation activity.
+- In both stress runs, the first 7,000 attempts succeeded; the next 4,000
+  attempts produced 3,978 and 3,973 timeouts, respectively. In the spike, the
+  8,000-attempt wave produced one success and 7,999 timeouts. These failures
+  may reflect backend limits, client-generator saturation, shared-machine
+  resource contention, or a combination. No server/database telemetry was
+  collected to separate those causes.
+- For a more representative capacity assessment, repeat with the load
+  generator on a separate machine, collect API/container CPU and RSS plus
+  database connection/pool/resource metrics, and keep the offered and achieved
+  request rates distinct.
+- A future mixed-service test should use controlled rates for connection
+  attempts alongside room joins, message send/receive, and selected REST calls.
+  Record per-operation throughput, success/failure counts and reasons,
+  acknowledgement/response latency percentiles, active sockets, and server,
+  database, and load-generator resources. Increase one workload dimension at a
+  time and include a baseline with each service tested alone.
+- The last two result reports record 11,000 disconnect confirmations and zero
+  client sockets remaining connected. Cleanup metadata was not present in the
+  earlier three reports because they predate the runner's awaited-cleanup
+  reporting.
+
+Detailed per-attempt reports:
+
+- [Load 1 — 2026-11-14 09:00 UTC](../socketIO_tests/connection_req_performance/results/connection-request-load-2026-11-14T09-00-12-024Z.json)
+- [Load 2 — 2026-11-14 09:06 UTC](../socketIO_tests/connection_req_performance/results/connection-request-load-2026-11-14T09-06-28-093Z.json)
+- [Stress 1 — 2026-11-14 09:17 UTC](../socketIO_tests/connection_req_performance/results/connection-request-stress-2026-11-14T09-17-10-075Z.json)
+- [Stress 2 — 2026-11-14 09:22 UTC](../socketIO_tests/connection_req_performance/results/connection-request-stress-2026-11-14T09-22-03-728Z.json)
+- [Spike — 2026-11-14 09:26 UTC](../socketIO_tests/connection_req_performance/results/connection-request-spike-2026-11-14T09-26-57-817Z.json)
