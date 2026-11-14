@@ -607,6 +607,16 @@ The server validates the access token and its active session, joins the socket t
 
 The standard Socket.IO `connect`, `connect_error`, and `disconnect` lifecycle events also apply. Connections are rejected without a valid active-session access token and disconnected when that token expires. Presence and typing events are ephemeral; they are not stored in the database.
 
+#### Socket.IO event performance benchmarks
+
+The acknowledgement/delivery, concurrent-message, group-fan-out, and realtime
+event benchmarks use the `socketIO_tests/other_imp_metrics/` scripts. They
+require the saved direct-conversation fixtures; group and realtime scenarios
+also require newly created OPEN groups, not the existing request-policy
+groups. See the [Socket.IO benchmark guide](./socketIO_tests/other_imp_metrics/README.md)
+for fixture preparation, profile commands, local-only safety checks, and
+report interpretation.
+
 ---
 
 # Version 1 — Functional Chat Application

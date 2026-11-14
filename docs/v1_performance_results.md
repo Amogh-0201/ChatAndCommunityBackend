@@ -1756,3 +1756,189 @@ Detailed per-attempt reports:
 - [Stress 1 — 2026-11-14 09:17 UTC](../socketIO_tests/connection_req_performance/results/connection-request-stress-2026-11-14T09-17-10-075Z.json)
 - [Stress 2 — 2026-11-14 09:22 UTC](../socketIO_tests/connection_req_performance/results/connection-request-stress-2026-11-14T09-22-03-728Z.json)
 - [Spike — 2026-11-14 09:26 UTC](../socketIO_tests/connection_req_performance/results/connection-request-spike-2026-11-14T09-26-57-817Z.json)
+
+
+### Message Performance Test
+
+This is a paced, single-sender direct-conversation run. It records the sender
+acknowledgement separately from the recipient's `message:new` event, so the
+two latency paths and delivery correctness can be compared.
+
+| Run (UTC) | Profile | Workload (messages; gap) | Attempted | Acknowledged / failed / timed out | Received / missing / duplicate | Throughput (messages/s) | Peak sockets | Cleanup (before -> after) |
+| --- | --- | --- | ---: | --- | --- | ---: | ---: | --- |
+| 2026-11-14 14:37:50.114 UTC | baseline | 100; 500 ms | 100 | 100 / 0 / 0 | 100 / 0 / 0 | 1.92 | 2 | 2 -> 0 |
+| 2026-11-14 14:44:05.061 UTC | light | 300; 200 ms | 300 | 300 / 0 / 0 | 300 / 0 / 0 | 4.59 | 2 | 2 -> 0 |
+| 2026-11-14 14:47:14.344 UTC | moderate | 500; 100 ms | 500 | 500 / 0 / 0 | 500 / 0 / 0 | 8.15 | 2 | 2 -> 0 |
+| 2026-11-14 14:49:09.035 UTC | heavy | 1,000; 50 ms | 1,000 | 1,000 / 0 / 0 | 1,000 / 0 / 0 | 15.41 | 2 | 2 -> 0 |
+| 2026-11-14 14:51:29.200 UTC | ultra (extended) | 4,000; 20 ms | 4,000 | 4,000 / 0 / 0 | 4,000 / 0 / 0 | 30.84 | 2 | 2 -> 0 |
+
+**Acknowledgement and delivery latency** (milliseconds; each statistic is calculated from that run's measured samples):
+
+| Profile | Measurement | Min (ms) | Avg (ms) | p50 (ms) | p90 (ms) | p95 (ms) | p99 (ms) | Max (ms) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | Sender acknowledgement | 8.84 | 17.84 | 15.98 | 26.95 | 29.03 | 39.5 | 70.61 |
+| baseline | Recipient delivery | 8.76 | 17.76 | 15.97 | 26.87 | 28.9 | 39.43 | 70.29 |
+| light | Sender acknowledgement | 8.67 | 12.11 | 11.58 | 13.95 | 14.94 | 23.32 | 54.41 |
+| light | Recipient delivery | 8.59 | 12.06 | 11.52 | 13.9 | 15.01 | 23.23 | 54.35 |
+| moderate | Sender acknowledgement | 8 | 11.42 | 10.65 | 13.31 | 16.75 | 24.05 | 42.86 |
+| moderate | Recipient delivery | 8.03 | 11.41 | 10.66 | 13.24 | 16.67 | 24.16 | 42.7 |
+| heavy | Sender acknowledgement | 7.94 | 11.38 | 10.75 | 13.15 | 14.42 | 22.04 | 91.7 |
+| heavy | Recipient delivery | 7.9 | 11.36 | 10.76 | 13.17 | 14.37 | 22 | 91.58 |
+| ultra (extended) | Sender acknowledgement | 7.35 | 9.99 | 9.76 | 11.08 | 12 | 16.49 | 62.54 |
+| ultra (extended) | Recipient delivery | 7.3 | 9.97 | 9.73 | 11.04 | 11.95 | 16.05 | 58.96 |
+
+**Load-generator resources.** RSS and heap are MiB (1 MiB = 1,048,576 bytes); CPU time and event-loop delay are measured on the Node.js load generator, not the backend.
+
+| Profile | RSS MiB (initial / peak / final) | Heap MiB (initial / peak / final) | CPU ms (user / system / total) | Event-loop delay ms (p95 / max) |
+| --- | --- | --- | --- | --- |
+| baseline | 58.2 / 104.5 / 75.6 | 9.0 / 44.6 / 23.3 | 297 / 203 / 500 | 32.13 / 48.82 |
+| light | 58.2 / 104.2 / 75.7 | 9.0 / 44.5 / 23.8 | 516 / 188 / 704 | 32.03 / 49.97 |
+| moderate | 58.3 / 105.1 / 76.2 | 9.0 / 45.0 / 23.7 | 828 / 188 / 1016 | 32.08 / 41.88 |
+| heavy | 58.3 / 105.0 / 77.0 | 9.0 / 44.9 / 24.4 | 812 / 313 / 1125 | 32.33 / 48.82 |
+| ultra (extended) | 58.3 / 105.7 / 81.7 | 9.0 / 44.5 / 26.1 | 2016 / 610 / 2626 | 31.65 / 36.11 |
+
+
+### Concurrent Message Load Test
+
+This test connects multiple direct-message sender/receiver pairs and runs the senders concurrently. It measures concurrent message throughput and separately tracks sender acknowledgements and recipient deliveries.
+
+| Run (UTC) | Profile | Clients / senders / messages per sender | Attempted | Acknowledged / failed / timed out | Received / missing / duplicate | Duration (s) | Throughput (messages/s) | Peak sockets | Cleanup (before -> after) |
+| --- | --- | --- | ---: | --- | --- | ---: | ---: | ---: | --- |
+| 2026-11-14 14:59:11.687 UTC | baseline | 10 / 5 / 20 | 100 | 100 / 0 / 0 | 100 / 0 / 0 | 4.55 | 21.96 | 10 | 10 -> 0 |
+| 2026-11-14 15:00:48.599 UTC | light | 20 / 10 / 30 | 300 | 300 / 0 / 0 | 300 / 0 / 0 | 6.88 | 43.59 | 20 | 20 -> 0 |
+| 2026-11-14 15:02:06.238 UTC | moderate | 50 / 25 / 30 | 750 | 750 / 0 / 0 | 750 / 0 / 0 | 6.87 | 109.21 | 50 | 50 -> 0 |
+| 2026-11-14 15:02:45.307 UTC | heavy | 100 / 50 / 30 | 1,500 | 1,500 / 0 / 0 | 1,500 / 0 / 0 | 7.7 | 194.85 | 100 | 100 -> 0 |
+| 2026-11-14 15:05:04.743 UTC | ultra (extended) | 500 / 250 / 50 | 12,500 | 12,500 / 0 / 0 | 12,500 / 0 / 0 | 38.34 | 326.02 | 500 | 500 -> 0 |
+
+**Acknowledgement and delivery latency** (milliseconds):
+
+| Profile | Measurement | Min (ms) | Avg (ms) | p50 (ms) | p90 (ms) | p95 (ms) | p99 (ms) | Max (ms) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | Sender acknowledgement | 9.14 | 19.96 | 15.18 | 31.25 | 52.61 | 67 | 67.57 |
+| baseline | Recipient delivery | 9.25 | 19.91 | 15.02 | 31.44 | 52.51 | 67.14 | 67.73 |
+| light | Sender acknowledgement | 8.07 | 14.65 | 11.08 | 16.42 | 19.81 | 89.46 | 91.36 |
+| light | Recipient delivery | 7.75 | 14.57 | 11 | 16.26 | 19.73 | 89.8 | 91.2 |
+| moderate | Sender acknowledgement | 7.61 | 18.66 | 11.6 | 20.66 | 32.27 | 186.96 | 209 |
+| moderate | Recipient delivery | 7.56 | 18.58 | 11.51 | 20.47 | 32.11 | 186.86 | 208.89 |
+| heavy | Sender acknowledgement | 7.62 | 35.79 | 16.96 | 56.13 | 151.61 | 355.71 | 363.74 |
+| heavy | Recipient delivery | 7.55 | 35.69 | 16.88 | 55.93 | 151.56 | 355.64 | 363.57 |
+| ultra (extended) | Sender acknowledgement | 8.86 | 556.72 | 515.09 | 685.83 | 842.12 | 1536.96 | 1630.13 |
+| ultra (extended) | Recipient delivery | 8.78 | 556.62 | 515.01 | 685.84 | 842.2 | 1536.78 | 1629.68 |
+
+**Load-generator resources** (see units above):
+
+| Profile | RSS MiB (initial / peak / final) | Heap MiB (initial / peak / final) | CPU ms (user / system / total) | Event-loop delay ms (p95 / max) |
+| --- | --- | --- | --- | --- |
+| baseline | 58.3 / 113.9 / 106.9 | 9.1 / 43.7 / 40.7 | 203 / 110 / 313 | 32.16 / 69.07 |
+| light | 58.4 / 111.9 / 104.1 | 9.0 / 46.3 / 26.0 | 406 / 172 / 578 | 32.28 / 35.82 |
+| moderate | 58.5 / 114.2 / 108.2 | 9.1 / 46.8 / 41.2 | 719 / 218 / 937 | 32.05 / 38.93 |
+| heavy | 58.3 / 131.8 / 119.6 | 9.1 / 63.4 / 44.7 | 1141 / 391 / 1532 | 31.57 / 46.53 |
+| ultra (extended) | 58.4 / 158.3 / 130.6 | 9.0 / 64.1 / 43.9 | 5438 / 2468 / 7906 | 31.74 / 187.7 |
+
+
+### Group Fanout Test
+
+One sender sends to each pre-created group. Expected deliveries exclude the sender's sending socket. The table reports both message acknowledgements and recipient-event counts, so the event throughput should not be confused with messages per second.
+
+| Run (UTC) | Profile | Group members | Messages | Acknowledged / failed / timed out | Expected / received delivery events | Missing / duplicate | Duration (s) | Throughput (delivery events/s) | Peak sockets | Cleanup (before -> after) |
+| --- | --- | ---: | ---: | --- | --- | --- | ---: | ---: | ---: | --- |
+| 2026-11-14 15:13:46.355 UTC | baseline | 2 | 100 | 100 / 0 / 0 | 100 / 100 | 0 / 0 | 1.17 | 71.91 | 2 | 2 -> 0 |
+| 2026-11-14 15:15:16.590 UTC | small | 5 | 100 | 100 / 0 / 0 | 400 / 400 | 0 / 0 | 1.07 | 310.79 | 5 | 5 -> 0 |
+| 2026-11-14 15:16:12.508 UTC | medium | 10 | 100 | 100 / 0 / 0 | 900 / 900 | 0 / 0 | 1.21 | 632.16 | 10 | 10 -> 0 |
+| 2026-11-14 15:17:53.652 UTC | large | 25 | 100 | 100 / 0 / 0 | 2,400 / 2,400 | 0 / 0 | 1.27 | 1603.07 | 25 | 25 -> 0 |
+| 2026-11-14 15:19:16.739 UTC | ultra (extended) | 50 | 500 | 500 / 0 / 0 | 24,500 / 24,500 | 0 / 0 | 6.73 | 3518.15 | 50 | 50 -> 0 |
+
+**Acknowledgement and per-recipient delivery latency** (milliseconds):
+
+| Profile | Measurement | Min (ms) | Avg (ms) | p50 (ms) | p90 (ms) | p95 (ms) | p99 (ms) | Max (ms) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| baseline | Message acknowledgement | 8.78 | 11.64 | 11.07 | 13.28 | 15.03 | 24.16 | 33.72 |
+| baseline | Per-recipient delivery | 8.67 | 11.55 | 10.95 | 13.44 | 14.92 | 24.06 | 33.42 |
+| small | Message acknowledgement | 8.53 | 10.68 | 10.02 | 13 | 14.05 | 17.58 | 26.36 |
+| small | Per-recipient delivery | 8.26 | 10.53 | 9.9 | 12.85 | 13.98 | 17.43 | 26.19 |
+| medium | Message acknowledgement | 8.83 | 12.03 | 10.28 | 15.24 | 16.45 | 47.33 | 64.77 |
+| medium | Per-recipient delivery | 8.2 | 11.81 | 10.15 | 15.17 | 16.13 | 46.99 | 64.68 |
+| large | Message acknowledgement | 8.97 | 12.68 | 10.99 | 15.19 | 16.79 | 24.67 | 95.17 |
+| large | Per-recipient delivery | 7.74 | 12.01 | 10.5 | 14.47 | 16.03 | 24.97 | 94.82 |
+| ultra (extended) | Message acknowledgement | 9.92 | 13.44 | 12.52 | 15.04 | 16.33 | 18.93 | 273.12 |
+| ultra (extended) | Per-recipient delivery | 7.78 | 11.75 | 10.91 | 13.53 | 14.74 | 17.75 | 272.69 |
+
+**Load-generator resources** (see units above):
+
+| Profile | RSS MiB (initial / peak / final) | Heap MiB (initial / peak / final) | CPU ms (user / system / total) | Event-loop delay ms (p95 / max) |
+| --- | --- | --- | --- | --- |
+| baseline | 58.3 / 97.2 / 97.2 | 9.0 / 37.3 / 37.3 | 172 / 31 / 203 | 31.6 / 44.5 |
+| small | 58.1 / 97.9 / 92.5 | 9.0 / 38.2 / 21.7 | 140 / 94 / 234 | 31.93 / 44.56 |
+| medium | 58.3 / 106.3 / 106.3 | 9.0 / 39.8 / 39.9 | 188 / 110 / 298 | 31.56 / 43.16 |
+| large | 58.2 / 110.9 / 99.0 | 9.0 / 45.3 / 31.6 | 422 / 156 / 578 | 31.8 / 34.77 |
+| ultra (extended) | 58.4 / 124.4 / 124.4 | 9.1 / 48.3 / 27.5 | 1453 / 594 / 2047 | 29.49 / 77.86 |
+
+
+### Realtime Event Tests
+
+The three profiled scenarios below ran with 50 connected clients and 500 measured requests, pairs, or cycles. These counts describe the workload issued against connected clients; they do not mean 500 clients or 500 simultaneous operations. The presence-transition scenario is different: it is one controlled lifecycle sequence, not a load profile.
+
+| Scenario | Run (UTC) | Executed workload | Completion and event counts | Rate | Peak sockets | Cleanup (before -> after) |
+| --- | --- | --- | --- | ---: | ---: | --- |
+| typing | 2026-11-14 15:26:43.607 UTC | moderate: 50 clients; 500 start/stop pairs (1,000 events) | 1,000/1,000 acknowledgements; 0 failed/timeouts; 49,000/49,000 expected/received; 0 missing, 0 duplicate | 99.88 events/s | 50 | 50 -> 0 |
+| presence-snapshots | 2026-11-14 15:29:08.538 UTC | moderate: 50 clients; 500 snapshot requests | 500/500 acknowledgements; 0 failed/timeouts; 500 responses; 0 missing | 242.97 requests/s | 50 | 50 -> 0 |
+| join-leave | 2026-11-14 15:30:23.063 UTC | moderate: 50 clients; 500 cycles by one actor | 500/500 joins; 500/500 leaves; 0 failed/timeouts; 500 join snapshots; 0 missing | 305.76 operations/s | 50 | 50 -> 0 |
+| presence-transitions | 2026-11-14 15:34:40.920 UTC | controlled: 1 observer + 2 sockets for one target user; 1 sequence (not a moderate-load run) | 1 online; 0 offline after first close; 1 offline after final close; 0 duplicates; 1/1 observer snapshots; online event before connect callback: false | - | 3 | 1 -> 0 |
+
+The archived presence-transition report's configuration says `profile: moderate`,
+`clients: 50`, and `workload: 500`, but those values did not control this
+scenario. The measured summary shows three peak connections and one sequence.
+One connection (the observer) remains before cleanup after both target sockets
+have been disconnected; cleanup then closes it. The current runner reports this
+as a controlled profile with the actual socket and sequence counts.
+
+For the other three scenarios, all 50 initial presence snapshots arrived. All
+19 recorded reports had empty error lists and no unexpected disconnects; every
+run cleaned up to zero connected sockets. Warm-up operations were zero. The
+ultra (extended) runs exceed the profiles currently supported by the benchmark
+scripts; they are included for completeness, not as standard profiles.
+
+**Realtime event latency** (milliseconds; initial snapshots are measured from
+connection start):
+
+| Scenario | Measurement | Min (ms) | Avg (ms) | p50 (ms) | p90 (ms) | p95 (ms) | p99 (ms) | Max (ms) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| typing | Typing start acknowledgement | 4.23 | 5.66 | 5.42 | 6.74 | 7.46 | 9.09 | 25.77 |
+| typing | Typing stop acknowledgement | 4.33 | 5.73 | 5.47 | 6.67 | 7.03 | 9.88 | 36.53 |
+| typing | Typing-start delivery | 2.83 | 4.82 | 4.66 | 5.92 | 6.56 | 8.81 | 25.98 |
+| typing | Typing-stop delivery | 2.76 | 4.81 | 4.61 | 5.93 | 6.44 | 8.94 | 36.71 |
+| typing | Initial presence snapshot | 535.55 | 572.35 | 570.57 | 594.62 | 595.98 | 597.6 | 597.6 |
+| presence-snapshots | Requested snapshot response | 2.98 | 4.06 | 3.88 | 5.12 | 5.89 | 7.08 | 8.6 |
+| presence-snapshots | Snapshot acknowledgement | 2.99 | 4.09 | 3.91 | 5.16 | 6.02 | 7.44 | 8.63 |
+| presence-snapshots | Initial presence snapshot | 374.29 | 383.83 | 385.85 | 391.82 | 392.45 | 394.93 | 394.93 |
+| join-leave | Join acknowledgement | 2.97 | 4.06 | 3.86 | 5.05 | 5.72 | 6.77 | 9.03 |
+| join-leave | Leave acknowledgement | 1.85 | 2.44 | 2.28 | 3.03 | 3.46 | 4.12 | 6.21 |
+| join-leave | Join presence snapshot | 2.96 | 4.04 | 3.83 | 5.02 | 5.7 | 6.66 | 9.01 |
+| join-leave | Initial presence snapshot | 621.76 | 649.04 | 650.53 | 668.46 | 671.63 | 671.92 | 671.92 |
+| presence-transitions | Online transition | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 | 3.9 |
+| presence-transitions | Offline transition | 4.96 | 4.96 | 4.96 | 4.96 | 4.96 | 4.96 | 4.96 |
+| presence-transitions | Observer initial presence snapshot | 20.18 | 20.18 | 20.18 | 20.18 | 20.18 | 20.18 | 20.18 |
+
+The presence-transition latency values come from one observed event of each kind; identical min/average/percentile/max values are therefore a single sample, not a distribution. Its first-socket connect duration was 7.45 ms, separate from the online transition latency.
+
+**Load-generator resources** (see units above; the presence-transition row
+reflects its three-socket controlled run):
+
+| Scenario | RSS MiB (initial / peak / final) | Heap MiB (initial / peak / final) | CPU ms (user / system / total) | Event-loop delay ms (p95 / max) |
+| --- | --- | --- | --- | --- |
+| typing | 58.5 / 124.4 / 124.4 | 9.1 / 52.3 / 47.4 | 1922 / 688 / 2610 | 31.44 / 51.74 |
+| presence-snapshots | 58.4 / 113.9 / 100.4 | 9.1 / 46.7 / 24.5 | 531 / 188 / 719 | 30.82 / 51.12 |
+| join-leave | 58.3 / 114.0 / 99.9 | 9.1 / 47.0 / 30.7 | 422 / 359 / 781 | 30.15 / 53.22 |
+| presence-transitions | 58.5 / 94.6 / 94.7 | 9.1 / 35.0 / 35.0 | 156 / 47 / 203 | 31.83 / 39.52 |
+
+
+### Reading these results
+
+These are single local runs against `http://localhost:3000`, using Node.js
+v24.20.0, WebSocket transport, disabled automatic reconnection, 10-second
+connection/acknowledgement/delivery timeouts, and a reported host memory total
+of 16,487,870,464 bytes (~15.4 GiB). The workload and rate figures are
+application-level outcomes, not a server-capacity guarantee. RSS, heap, CPU
+time, and event-loop delay describe only the load-generator process; they do
+not report backend or PostgreSQL resource use. Compare latency percentiles
+with both the workload shape and load-generator event-loop delay in view.
