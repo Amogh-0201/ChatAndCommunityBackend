@@ -359,6 +359,26 @@ These profiles use the saved conversation user and group files.
 `CONVERSATION_USERS_FILE` and `CONVERSATION_GROUPS_FILE` can override their
 default paths.
 
+#### Get-conversation-messages performance tests
+
+These read-only profiles cycle through the saved 5,500 direct conversations
+and authenticate as the corresponding first member of each conversation. They
+request up to 50 messages per page and use the standard load, stress, and
+spike profiles, peaking at 450, 800, and 1,000 VUs:
+
+```powershell
+node scripts/auth-token-pool.mjs refresh 11000
+k6 run k6_tests/message_service/get_conversation_messages/get_conversation_messages_load.js
+k6 run k6_tests/message_service/get_conversation_messages/get_conversation_messages_stress.js
+k6 run k6_tests/message_service/get_conversation_messages/get_conversation_messages_spike.js
+```
+
+The profiles use `scripts/.conversation-test-direct.json`,
+`scripts/.conversation-test-users.json`, and the 11,000-user auth token pool.
+`CONVERSATION_DIRECT_FILE`, `CONVERSATION_USERS_FILE`, and `TOKEN_POOL_FILE`
+can override their default paths. Existing conversations may have no messages;
+the endpoint response is still checked for a valid page in that case.
+
 #### Leave-group performance test data
 
 Refresh the saved group memberships immediately before running leave-group

@@ -1408,6 +1408,40 @@ default ✓ [======================================] 0000/1000 VUs  15s
 </details>
 
 
+## Message Service
+
+### Get Conversation Messages
+
+The endpoint reads up to 50 messages from a saved direct conversation and
+authenticates as a member of that conversation. All three profiles reported
+100% successful checks and no HTTP request failures. No performance thresholds
+or system-resource metrics were recorded; treat these as exploratory local
+results.
+
+The profiles used these stage schedules:
+
+- **Load:** 15 s ramp to 450 VUs, then 15 s holding at 450.
+- **Stress:** 5 s to 100; 2 s holding at 100; 5 s to 200; 5 s to 400; 3 s
+  holding at 400; 5 s to 800; 5 s holding at 800; 10 s down to 200.
+- **Spike:** 3 s to 200; 2 s holding at 200; 3 s to 1,000; 2 s holding at
+  1,000; 5 s down to 200.
+
+| Profile | Elapsed | Active VUs (min-max) | Requests / iterations | Throughput | Checks passed | HTTP failures | Data received | Data sent |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | 30.4 s | 29-450 | 12,559 / 12,559 | 412.59 req/s | 100% (12,559/12,559) | 0 (0%) | 13 MB (432 kB/s) | 6.3 MB (206 kB/s) |
+| Stress | 40.3 s | 18-800 | 16,564 / 16,564 | 410.85 req/s | 100% (16,564/16,564) | 0 (0%) | 15 MB (375 kB/s) | 8.2 MB (205 kB/s) |
+| Spike | 15.2 s | 58-1,000 | 6,078 / 6,078 | 398.77 req/s | 100% (6,078/6,078) | 0 (0%) | 8.1 MB (532 kB/s) | 3.0 MB (199 kB/s) |
+
+| Profile | Metric | Average | Minimum | Median | p90 | p95 | Maximum |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Load | HTTP request | 815.81 ms | 16.89 ms | 916.73 ms | 1.07 s | 1.12 s | 1.18 s |
+| Load | Iteration | 816.52 ms | 18.75 ms | 917.36 ms | 1.07 s | 1.12 s | 1.18 s |
+| Stress | HTTP request | 985.58 ms | 7.40 ms | 866.04 ms | 1.97 s | 2.09 s | 2.27 s |
+| Stress | Iteration | 986.31 ms | 7.94 ms | 866.80 ms | 1.97 s | 2.09 s | 2.27 s |
+| Spike | HTTP request | 1.34 s | 22.07 ms | 1.27 s | 2.20 s | 3.67 s | 4.44 s |
+| Spike | Iteration | 1.34 s | 22.91 ms | 1.27 s | 2.20 s | 3.67 s | 4.44 s |
+
+
 ## Mixed service
 
 ### Test method and how to read the profiles
