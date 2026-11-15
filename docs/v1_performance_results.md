@@ -1,6 +1,61 @@
 # V1 Performance Test Results
 
-## Authentication service
+## 1. Overview
+
+This report summarizes exploratory V1 performance tests for the REST
+authentication, user, conversation, and message services, plus Socket.IO
+connections and real-time events. The results describe the recorded local test
+profiles only; they are not production capacity guarantees. The detailed
+results and their limitations are documented in the sections below.
+
+## 2. V1 Architecture
+
+```mermaid
+flowchart TB
+    C[Clients]
+
+    C -->|HTTP REST| API[NestJS Application]
+    C -->|Socket.IO| GW[Message Gateway]
+
+    subgraph APP[NestJS Application]
+        API --> AUTH[Auth Module]
+        API --> USER[User Module]
+        API --> CONV[Conversation Module]
+
+        GW --> MSG[Message Module]
+        GW --> PRES[Presence and Typing]
+        AUTH --> PRISMA[Prisma]
+        USER --> PRISMA
+        CONV --> PRISMA
+        MSG --> PRISMA
+    end
+
+    PRISMA --> DB[(PostgreSQL)]
+
+    GW -.->|In-memory socket registry| REG[Socket Session Registry]
+```
+
+## 3. Test Environment and Methodology
+
+- **REST tests:** k6 scripts exercised the authentication, user, conversation,
+  and message endpoints against the local Docker-based API and database.
+  Profiles included load, stress, and spike stages where recorded; workload
+  setup and endpoint-specific checks are described in each service section.
+- **Socket.IO tests:** Node.js benchmark runners exercised connection
+  establishment, direct and group messaging, and real-time presence/typing
+  events. The tests used WebSocket transport; connection and event benchmark
+  settings are recorded in the Socket.IO section.
+- **Measurements:** Results report completed HTTP requests or application
+  events, throughput, checks/failures, and latency percentiles as applicable.
+  VU targets and requested connection rates are not necessarily achieved
+  concurrency or dispatch rates.
+- **Limitations:** These were local exploratory runs without configured
+  performance thresholds. Backend/database resource telemetry was generally
+  not captured. For the Socket.IO connection request tests, the load generator
+  and local backend shared the same machine, so client-side stress can affect
+  the observed outcomes.
+
+## 4. Authentication Service
 
 ### Executive summary
 
@@ -306,7 +361,7 @@ api-1  |   clientVersion: '7.10.1'
 api-1  | }
 
 
-## User service
+## 5. User Service
 
 ### Test method and how to read the profiles
 
@@ -390,7 +445,7 @@ k6 reported 45.2 s elapsed). The spike held 1,000 VUs for 2 seconds after a
 2-second ramp toward that target.
 
 
-## Conversation service
+## 6. Conversation Service
 
 ### Test scope and interpretation
 
@@ -1408,9 +1463,9 @@ default ✓ [======================================] 0000/1000 VUs  15s
 </details>
 
 
-## Message Service
+### Message Service
 
-### Get Conversation Messages
+#### Get Conversation Messages
 
 The endpoint reads up to 50 messages from a saved direct conversation and
 authenticates as a member of that conversation. All three profiles reported
@@ -1526,9 +1581,9 @@ than an exact measurement of the current script configuration.
 
 
 
-## Socket IO tests
+## 7. Socket.IO Performance
 
-### Concurrent Connection Limit Test
+### 7.1 Concurrent Connection Limit
 
 #### 11,000 concurrent connections
 
@@ -1597,7 +1652,7 @@ so those bottlenecks cannot be assessed from this run.
 The result report contains the per-attempt measurements and stage details:
 [concurrent-connections-2026-11-13T22-54-31-654Z.json](../socketIO_tests/concurrent_connection_limit/results/concurrent-connections-2026-11-13T22-54-31-654Z.json).
 
-### Connection Requests Performance Test
+### 7.2 Connection Request Performance
 
 These five local runs measure **Socket.IO connection attempts**, not application
 event/message latency. Every attempt used a unique token-pool user, WebSocket
@@ -1792,7 +1847,7 @@ Detailed per-attempt reports:
 - [Spike — 2026-11-14 09:26 UTC](../socketIO_tests/connection_req_performance/results/connection-request-spike-2026-11-14T09-26-57-817Z.json)
 
 
-### Message Performance Test
+### 7.3 Message Performance
 
 This is a paced, single-sender direct-conversation run. It records the sender
 acknowledgement separately from the recipient's `message:new` event, so the
@@ -1832,7 +1887,7 @@ two latency paths and delivery correctness can be compared.
 | ultra (extended) | 58.3 / 105.7 / 81.7 | 9.0 / 44.5 / 26.1 | 2016 / 610 / 2626 | 31.65 / 36.11 |
 
 
-### Concurrent Message Load Test
+### 7.4 Concurrent Message Load
 
 This test connects multiple direct-message sender/receiver pairs and runs the senders concurrently. It measures concurrent message throughput and separately tracks sender acknowledgements and recipient deliveries.
 
@@ -1870,7 +1925,7 @@ This test connects multiple direct-message sender/receiver pairs and runs the se
 | ultra (extended) | 58.4 / 158.3 / 130.6 | 9.0 / 64.1 / 43.9 | 5438 / 2468 / 7906 | 31.74 / 187.7 |
 
 
-### Group Fanout Test
+### 7.5 Group Fan-out Performance
 
 One sender sends to each pre-created group. Expected deliveries exclude the sender's sending socket. The table reports both message acknowledgements and recipient-event counts, so the event throughput should not be confused with messages per second.
 
@@ -1908,7 +1963,7 @@ One sender sends to each pre-created group. Expected deliveries exclude the send
 | ultra (extended) | 58.4 / 124.4 / 124.4 | 9.1 / 48.3 / 27.5 | 1453 / 594 / 2047 | 29.49 / 77.86 |
 
 
-### Realtime Event Tests
+### 7.6 Real-time Events Performance
 
 The three profiled scenarios below ran with 50 connected clients and 500 measured requests, pairs, or cycles. These counts describe the workload issued against connected clients; they do not mean 500 clients or 500 simultaneous operations. The presence-transition scenario is different: it is one controlled lifecycle sequence, not a load profile.
 
@@ -1976,3 +2031,52 @@ application-level outcomes, not a server-capacity guarantee. RSS, heap, CPU
 time, and event-loop delay describe only the load-generator process; they do
 not report backend or PostgreSQL resource use. Compare latency percentiles
 with both the workload shape and load-generator event-loop delay in view.
+
+## 8. Overall Findings
+
+- **Authentication:** Registration and login throughput plateaued around
+  19–20 requests/second in the recorded local tests, even as latency increased
+  at higher configured concurrency. The login failures and logout-all
+  transaction-start errors are detailed in the Authentication Service section.
+- **User endpoints:** `GET /user` and `GET /user/me` completed their tested
+  workloads with 100% successful checks and no recorded HTTP request failures.
+- **Conversation listing:** `GET /conversations` had substantial latency
+  degradation as load increased; its recorded spike reached a p95 of 16.38
+  seconds, despite no recorded HTTP failures.
+- **Socket.IO connections:** Connection tests showed successful completion in
+  the recorded load profiles and severe timeout patterns in stress/spike
+  profiles. The load generator and server shared the same machine, so these
+  local results do not isolate backend capacity or establish an architectural
+  connection limit.
+
+## 9. Known Bottlenecks and Limitations
+
+- Authentication registration/login throughput did not increase with
+  configured concurrency, while request latency rose sharply. Login and
+  logout-all also encountered Prisma transaction-start failures under load.
+  The available logs identify the failure path, not its underlying resource
+  cause.
+- The unpaginated `GET /conversations` query/serialization path was the
+  clearest REST latency bottleneck in the recorded results. The test did not
+  capture SQL plans/timings or enough database and API telemetry to attribute
+  the latency to a specific component.
+- Socket.IO stress and spike connection failures may reflect backend limits,
+  load-generator saturation, shared-machine contention, or a combination.
+  Server/database resource telemetry was not captured to distinguish them.
+- Socket session tracking is in-memory in this V1 architecture. The tests do
+  not establish multi-instance behavior or a distributed connection capacity.
+- Across the report, local machine state, test-data shape, short profile
+  durations, and missing resource telemetry limit comparisons and
+  generalization. The 11,000-connection run stopped at its configured cap and
+  did not discover a maximum.
+
+## 10. Future Work — Mixed-Service Testing
+
+The existing “Mixed service” results exercise sequential User Service REST
+calls; they are not a combined REST and Socket.IO workload. Mixed-service
+testing across REST and Socket.IO was deferred to a later milestone.
+
+> Mixed-service testing was deferred to a later milestone. Individual REST and
+> Socket.IO workloads were tested independently. A combined workload test will
+> be useful after the V2 distributed architecture is implemented, allowing
+> comparison of the two versions under equivalent conditions.
