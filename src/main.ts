@@ -1,6 +1,8 @@
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { RedisIoAdapter } from './lib/websocket/redis-io.adapter';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -12,6 +14,14 @@ async function bootstrap() {
       transform: true
     })
   );
+
+  const configService = app.get(ConfigService);
+
+  const redisIoAdapter = new RedisIoAdapter(app, configService);
+
+  await redisIoAdapter.connectToRedis();
+
+  app.useWebSocketAdapter(redisIoAdapter);
 
   app.enableShutdownHooks();
 

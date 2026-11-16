@@ -15,7 +15,7 @@ services:
     volumes:
       - loadtest_db_data:/var/lib/postgresql/data
   
-  api:
+  api1:
     build: .
     environment:
       DATABASE_URL: "postgresql://load_test:load_test_only_password@db:5432/chat_community_load?schema=public"
@@ -23,11 +23,41 @@ services:
       JWT_ISSUER: "chat-community-load-test"
       JWT_AUDIENCE: "chat-community-load-test"
       PORT: "3000"
+      REDIS_URL: "redis://redis:6379"
     ports:
       - "127.0.0.1:3000:3000"
     depends_on:
       db:
         condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  api2:
+    build: .
+    environment:
+      DATABASE_URL: "postgresql://load_test:load_test_only_password@db:5432/chat_community_load?schema=public"
+      JWT_ACCESS_SECRET: "local-load-test-only-change-this-secret"
+      JWT_ISSUER: "chat-community-load-test"
+      JWT_AUDIENCE: "chat-community-load-test"
+      PORT: "3000"
+      REDIS_URL: "redis://redis:6379"
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "127.0.0.1:6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
 
 volumes:
   loadtest_db_data:
