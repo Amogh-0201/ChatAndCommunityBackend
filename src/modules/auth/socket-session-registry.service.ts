@@ -1,94 +1,139 @@
 import { Injectable } from "@nestjs/common";
-import { Socket } from "socket.io";
+import { Server, Socket } from "socket.io";
+import { RedisService } from "../../redis/redis.service";
 
 @Injectable()
 export class SocketSessionRegistry {
 
-    private readonly socketsBySession = new Map<string, Set<Socket>>();
-    private readonly socketsByUser = new Map<string, Set<Socket>>();
+    private readonly redis: ReturnType<RedisService['getClient']>;
+    
+    private server?: Server;
 
-    register(sessionId: string, userId: string, socket: Socket): boolean {
-        
-        // Track sockets belonging to this session.
-        let sessionSockets = this.socketsBySession.get(sessionId);
+    private readonly onlineUsersKey = 'presence:online-users';
 
-        if(!sessionSockets) {
-            sessionSockets = new Set<Socket>();
-            this.socketsBySession.set(sessionId, sessionSockets);
-        }
-
-        sessionSockets.add(socket);
-
-        // Track sockets belonging to this user.
-        let userSockets = this.socketsByUser.get(userId);
-
-        const isFirstConnection = !userSockets || userSockets.size === 0;
-
-        if(!userSockets) {
-            userSockets = new Set<Socket>();
-            this.socketsByUser.set(userId, userSockets);
-        }
-
-        userSockets.add(socket);
-
-        // True only when the user transitions from offline to online.
-        return isFirstConnection;
+    constructor(private readonly redisService: RedisService) {
+        this.redis = this.redisService.getClient();
     }
 
-    unregister(sessionId: string, userId: string, socket: Socket): boolean {
-        
-        // Remove from session tracking.
-        const sessionSockets = this.socketsBySession.get(sessionId);
+    // The gateway provides its Socket.IO server instance.
+    setServer(server: Server) {
+        this.server = server;
+    }
 
-        if(sessionSockets) {
-            sessionSockets.delete(socket);
-            if(sessionSockets.size === 0) {
-                this.socketsBySession.delete(sessionId);
-            }
+    private userSocketsKey(userId: string) {
+        return `presence:user:${userId}:sockets`;
+    }
+
+    private sessionSocketsKey(sessionId: string) {
+        return `presence:session:${sessionId}:sockets`
+    }
+
+    private socketMetadataKey(socketId: string) {
+        return `presence:socket:${socketId}`;
+    }
+
+    async register(sessionId: string, userId: string, socket: Socket): Promise<boolean> {
+        
+        const userKey = this.userSocketsKey(userId);
+        const sessionKey = this.sessionSocketsKey(sessionId);
+        const metadataKey = this.socketMetadataKey(socket.id);
+
+        // Add the socket to the user's socket Set.
+        const added = await this.redis.sAdd(userKey, socket.id);
+
+        // Add the socket to the session's socket Set.
+        await this.redis.sAdd(sessionKey, socket.id);
+
+        // Store information about this socket.
+        await this.redis.hSet(metadataKey, {
+            userId,
+            sessionId,
+            serverId: process.env.INSTANCE_ID ?? process.env.HOSTNAME ?? 'local',
+            connectedAt: Date.now().toString()
+        });
+
+        // Count the user's active sockets.
+        const socketCount = await this.redis.sCard(userKey);
+
+        // Keep the global online-users Set updated.
+        if(socketCount > 0) {
+            await this.redis.sAdd(this.onlineUsersKey, userId);
         }
 
-        // Remove from user tracking.
-        const userSockets = this.socketsByUser.get(userId);
+        // Only a newly added socket that is the user's first connection reports an offline -> online transition.
+        return added === 1 && socketCount === 1;
+    }
 
-        if(!userSockets) return false;
+    async unregister(sessionId: string, userId: string, socket: Socket): Promise<boolean> {
+        
+        const userKey = this.userSocketsKey(userId);
+        const sessionKey = this.sessionSocketsKey(sessionId);
+        const metadataKey = this.socketMetadataKey(socket.id);
 
-        userSockets.delete(socket);
+        // Remove socket from the session Set.
+        await this.redis.sRem(sessionKey, socket.id);
 
-        if(userSockets.size === 0) {
-            this.socketsByUser.delete(userId);
-            // True only when the user transitions from online to offline.
+        // Remove socket from the user Set.
+        const removed = await this.redis.sRem(userKey, socket.id);
+
+        // Remove socket metadata.
+        await this.redis.del(metadataKey);
+
+        // Remove empty session Sets.
+        const sessionCount = await this.redis.sCard(sessionKey);
+        if (sessionCount === 0) {
+            await this.redis.del(sessionKey);
+        }
+
+        // If the socket wasn't registered, it cannot cause a new online -> offline transition.
+        if (removed === 0) {
+            return false;
+        }
+
+        // Check whether the user has other active connections.
+        const userSocketsCount = await this.redis.sCard(userKey);
+
+        if(userSocketsCount === 0) {
+            await this.redis.del(userKey);
+            await this.redis.sRem(this.onlineUsersKey, userId);
+            // User transitioned from online -> offline.
             return true;
         }
 
         return false;
     }
 
-    isUserOnline(userId: string): boolean {
-        return (this.socketsByUser.get(userId)?.size ?? 0) > 0;
+    async isUserOnline(userId: string): Promise<boolean> {
+
+        return Boolean(await this.redis.sIsMember(this.onlineUsersKey, userId));
     }
 
-    getOnlineUserIds(): string[] {
-        return [...this.socketsByUser.keys()];
+    async getOnlineUserIds(): Promise<string[]> {
+
+        return await this.redis.sMembers(this.onlineUsersKey);
     }
 
-    disconnectSession(sessionId: string) {
+    async disconnectSession(sessionId: string): Promise<void> {
         
-        const sockets = this.socketsBySession.get(sessionId);
-
-        if (!sockets) {
-            return;
+        if (!this.server) {
+            throw new Error('Socket.IO server has not been initialized');
         }
 
-        // Copy the set because disconnect triggers cleanup.
-        for(const socket of [...sockets]) {
-            socket.disconnect(true);
+        const sessionKey = this.sessionSocketsKey(sessionId);
+
+        // Get socket IDs belonging to this session.
+        const socketIds = await this.redis.sMembers(sessionKey);
+        
+        // Disconnect each socket through its private Socket.IO room.
+        for(const socketId of socketIds) {
+            this.server.in(socketId).disconnectSockets(true);
         }
     }
 
-    disconnectSessions(sessionIds: string[]) {
+    async disconnectSessions(sessionIds: string[]): Promise<void> {
         
         for(const sessionId of sessionIds) {
-            this.disconnectSession(sessionId);
+            await this.disconnectSession(sessionId);
         }
     }
 }

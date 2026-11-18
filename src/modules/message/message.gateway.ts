@@ -55,7 +55,12 @@ export class MessageGateway implements OnGatewayInit {
     ) {}
 
     afterInit(server: Server) {
+        
         // Runs before a new Socket.IO connection is accepted.
+        this.server = server;
+
+        this.socketSessionRegistry.setServer(server);
+
         server.use((client, next) => {
             void this.authenticateSocket(client, next);
         });
@@ -136,7 +141,7 @@ export class MessageGateway implements OnGatewayInit {
         // Only the server chooses which user room this socket joins.
         await client.join(`user:${authUser.id}`);
 
-        const becameOnline = this.socketSessionRegistry.register(authUser.sessionId, authUser.id, client);
+        const becameOnline = await this.socketSessionRegistry.register(authUser.sessionId, authUser.id, client);
         if(becameOnline) {
             try {
                 await this.broadcastPresence(authUser.id, 'presence:online');
@@ -161,7 +166,7 @@ export class MessageGateway implements OnGatewayInit {
         client.data.authExpiryTimer = expiryTimer;
     }
 
-    handleDisconnect(client: Socket) {
+    async handleDisconnect(client: Socket) {
 
         const authUser = client.data.authUser as SocketAuthUser | undefined;
         const expiryTimer = client.data.authExpiryTimer as ReturnType<typeof setTimeout> | undefined;
@@ -172,12 +177,13 @@ export class MessageGateway implements OnGatewayInit {
 
         if(!authUser) return;
         
-        const becameOffline = this.socketSessionRegistry.unregister(authUser.sessionId, authUser.id, client);
+        const becameOffline = await this.socketSessionRegistry.unregister(authUser.sessionId, authUser.id, client);
         if(becameOffline) {
-            void this.broadcastPresence(authUser.id, 'presence:offline')
-                .catch(error => {
-                    this.logger.error('Failed to broadcast offline presence', error);
-                });
+            try {
+                await this.broadcastPresence(authUser.id, 'presence:offline');
+            } catch (error) {
+                this.logger.error('Failed to broadcast offline presence', error);
+            }
         }
         
     }
@@ -202,8 +208,17 @@ export class MessageGateway implements OnGatewayInit {
                 select: { userId: true }
             });
 
-            const onlineUserIds = peers.map(peer => peer.userId)
-                .filter(userId => this.socketSessionRegistry.isUserOnline(userId));
+            const peerIds = peers.map(peer => peer.userId);
+
+            const onlineStatuses = await Promise.all(
+                peerIds.map(userId =>
+                    this.socketSessionRegistry.isUserOnline(userId)
+                )
+            );
+
+            const onlineUserIds = peerIds.filter(
+                (_, index) => onlineStatuses[index]
+            );
 
             client.emit('presence:snapshot', { onlineUserIds });
 
@@ -402,8 +417,14 @@ export class MessageGateway implements OnGatewayInit {
         
         const peerIds = await this.getConversationPeerIds(userId);
         
+        const onlineStatuses = await Promise.all(
+            peerIds.map(peerId =>
+                this.socketSessionRegistry.isUserOnline(peerId)
+            )
+        );
+
         const onlineUserIds = peerIds.filter(
-            peerId => this.socketSessionRegistry.isUserOnline(peerId)
+            (_, index) => onlineStatuses[index]
         );
 
         client.emit('presence:snapshot', { onlineUserIds });

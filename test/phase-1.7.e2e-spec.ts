@@ -442,11 +442,49 @@ describe('Phase 1.7: REST and Socket.IO integration', () => {
   }, 30000);
 
   it('delivers group messages to all three members and rejects unauthenticated sockets', async () => {
-    const alice = await connectSocket(getUser('alice').accessToken);
-    const bob = await connectSocket(getUser('bob').accessToken);
-    const charlie = await connectSocket(getUser('charlie').accessToken);
+    const bob = createSocket(getUser('bob').accessToken);
+    const bobInitialSnapshot = waitForEvent<{ onlineUserIds: string[] }>(
+      bob,
+      'presence:snapshot',
+    );
+    await waitForSocketConnect(bob);
+    await bobInitialSnapshot.promise;
 
-    for (const socket of [alice, bob, charlie]) {
+    const charlie = createSocket(getUser('charlie').accessToken);
+    const charlieInitialSnapshot = waitForEvent<{ onlineUserIds: string[] }>(
+      charlie,
+      'presence:snapshot',
+    );
+    await waitForSocketConnect(charlie);
+    await charlieInitialSnapshot.promise;
+
+    const alice = createSocket(getUser('alice').accessToken);
+    const initialSnapshot = waitForEvent<{ onlineUserIds: string[] }>(
+      alice,
+      'presence:snapshot',
+    );
+    await waitForSocketConnect(alice);
+    const initialPresence = await initialSnapshot.promise;
+    expect(initialPresence.onlineUserIds).toHaveLength(2);
+    expect(initialPresence.onlineUserIds).toEqual(
+      expect.arrayContaining([getUser('bob').id, getUser('charlie').id]),
+    );
+
+    const joinSnapshot = waitForEvent<{ onlineUserIds: string[] }>(
+      alice,
+      'presence:snapshot',
+    );
+    const aliceJoin = await emitAck<Ack<never>>(alice, 'conversation:join', {
+      conversationId: groupConversation.id,
+    });
+    expect(aliceJoin.ok).toBe(true);
+    const joinedPresence = await joinSnapshot.promise;
+    expect(joinedPresence.onlineUserIds).toHaveLength(2);
+    expect(joinedPresence.onlineUserIds).toEqual(
+      expect.arrayContaining([getUser('bob').id, getUser('charlie').id]),
+    );
+
+    for (const socket of [bob, charlie]) {
       const joined = await emitAck<Ack<never>>(socket, 'conversation:join', {
         conversationId: groupConversation.id,
       });
@@ -492,6 +530,12 @@ describe('Phase 1.7: REST and Socket.IO integration', () => {
   }, 30000);
 
   async function connectSocket(token: string): Promise<Socket> {
+    const socket = createSocket(token);
+    await waitForSocketConnect(socket);
+    return socket;
+  }
+
+  function createSocket(token: string): Socket {
     const socket = io(apiUrl, {
       autoConnect: false,
       auth: { token },
@@ -500,7 +544,6 @@ describe('Phase 1.7: REST and Socket.IO integration', () => {
       transports: ['websocket'],
     });
     sockets.add(socket);
-    await waitForSocketConnect(socket);
     return socket;
   }
 
