@@ -1,6 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { Server, Socket } from "socket.io";
 import { RedisService } from "../../redis/redis.service";
+import { CLEANUP_EXPIRED_SOCKETS_SCRIPT, REGISTER_SOCKET_SCRIPT, RENEW_SOCKET_LEASE_SCRIPT, UNREGISTER_SOCKET_SCRIPT } from "./socket-presence.scripts";
+
+export const PRESENCE_LEASE_DURATION_MS = 60_000;
 
 @Injectable()
 export class SocketSessionRegistry {
@@ -10,6 +13,7 @@ export class SocketSessionRegistry {
     private server?: Server;
 
     private readonly onlineUsersKey = 'presence:online-users';
+    private readonly socketLeasesKey = 'presence:socket-leases';
 
     constructor(private readonly redisService: RedisService) {
         this.redis = this.redisService.getClient();
@@ -33,74 +37,104 @@ export class SocketSessionRegistry {
     }
 
     async register(sessionId: string, userId: string, socket: Socket): Promise<boolean> {
+
+        const now = Date.now();
         
-        const userKey = this.userSocketsKey(userId);
-        const sessionKey = this.sessionSocketsKey(sessionId);
-        const metadataKey = this.socketMetadataKey(socket.id);
+        const result = await this.redis.eval(
+            REGISTER_SOCKET_SCRIPT,
+            {
+                keys: [
+                    this.userSocketsKey(userId),
+                    this.sessionSocketsKey(sessionId),
+                    this.socketMetadataKey(socket.id),
+                    this.onlineUsersKey,
+                    this.socketLeasesKey
+                ],
+                arguments: [
+                    socket.id,
+                    userId,
+                    sessionId,
+                    process.env.INSTANCE_ID ??
+                        process.env.HOSTNAME ??
+                        'local',
+                    now.toString(),
+                    (now + PRESENCE_LEASE_DURATION_MS).toString()
+                ]
+            }
+        );
 
-        // Add the socket to the user's socket Set.
-        const added = await this.redis.sAdd(userKey, socket.id);
-
-        // Add the socket to the session's socket Set.
-        await this.redis.sAdd(sessionKey, socket.id);
-
-        // Store information about this socket.
-        await this.redis.hSet(metadataKey, {
-            userId,
-            sessionId,
-            serverId: process.env.INSTANCE_ID ?? process.env.HOSTNAME ?? 'local',
-            connectedAt: Date.now().toString()
-        });
-
-        // Count the user's active sockets.
-        const socketCount = await this.redis.sCard(userKey);
-
-        // Keep the global online-users Set updated.
-        if(socketCount > 0) {
-            await this.redis.sAdd(this.onlineUsersKey, userId);
-        }
-
-        // Only a newly added socket that is the user's first connection reports an offline -> online transition.
-        return added === 1 && socketCount === 1;
+        return Number(result) === 1;
     }
 
     async unregister(sessionId: string, userId: string, socket: Socket): Promise<boolean> {
         
-        const userKey = this.userSocketsKey(userId);
-        const sessionKey = this.sessionSocketsKey(sessionId);
-        const metadataKey = this.socketMetadataKey(socket.id);
+        const result = await this.redis.eval(
+            UNREGISTER_SOCKET_SCRIPT,
+            {
+                keys: [
+                    this.userSocketsKey(userId),
+                    this.sessionSocketsKey(sessionId),
+                    this.socketMetadataKey(socket.id),
+                    this.onlineUsersKey,
+                    this.socketLeasesKey
+                ],
+                arguments: [
+                    socket.id,
+                    userId,
+                    sessionId
+                ]
+            }
+        );
 
-        // Remove socket from the session Set.
-        await this.redis.sRem(sessionKey, socket.id);
+        return Number(result) === 1;
+    }
 
-        // Remove socket from the user Set.
-        const removed = await this.redis.sRem(userKey, socket.id);
+    async renewLease(socketId: string): Promise<boolean> {
 
-        // Remove socket metadata.
-        await this.redis.del(metadataKey);
+        const now = Date.now();
 
-        // Remove empty session Sets.
-        const sessionCount = await this.redis.sCard(sessionKey);
-        if (sessionCount === 0) {
-            await this.redis.del(sessionKey);
+        const result = await this.redis.eval(
+            RENEW_SOCKET_LEASE_SCRIPT,
+            {
+                keys: [
+                    this.socketMetadataKey(socketId),
+                    this.socketLeasesKey
+                ],
+                arguments: [
+                    socketId,
+                    now.toString(),
+                    (now + PRESENCE_LEASE_DURATION_MS).toString()
+                ]
+            }
+        );
+
+        return Number(result) === 1;
+    }
+
+    async cleanupExpiredSockets(): Promise<string[]> {
+        
+        const result = await this.redis.eval(
+            CLEANUP_EXPIRED_SOCKETS_SCRIPT,
+            {
+                keys: [
+                    this.socketLeasesKey,
+                    this.onlineUsersKey
+                ],
+                arguments: [
+                    Date.now().toString(),
+                    '500',
+                    'presence:user:',
+                    'presence:session:',
+                    'presence:socket:'
+                ]
+            }
+        );
+
+        if(!Array.isArray(result)) {
+            return [];
         }
 
-        // If the socket wasn't registered, it cannot cause a new online -> offline transition.
-        if (removed === 0) {
-            return false;
-        }
-
-        // Check whether the user has other active connections.
-        const userSocketsCount = await this.redis.sCard(userKey);
-
-        if(userSocketsCount === 0) {
-            await this.redis.del(userKey);
-            await this.redis.sRem(this.onlineUsersKey, userId);
-            // User transitioned from online -> offline.
-            return true;
-        }
-
-        return false;
+        return result.map(String);
     }
 
     async isUserOnline(userId: string): Promise<boolean> {

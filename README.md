@@ -737,10 +737,10 @@ A registered user can log in, start a direct or group conversation, send and rec
 
 ## Phase 2.1 — Multiple Socket.IO instances and Redis
 
-- [ ] Run more than one application / WebSocket gateway instance.
-- [ ] Introduce the Socket.IO Redis adapter so broadcasts reach sockets connected to other instances.
-- [ ] Maintain shared online-presence information rather than trusting per-process memory alone.
-- [ ] Verify cross-instance message delivery and disconnect behavior.
+- [x] Run more than one application / WebSocket gateway instance.
+- [x] Introduce the Socket.IO Redis adapter so broadcasts reach sockets connected to other instances.
+- [x] Maintain shared online-presence information rather than trusting per-process memory alone.
+- [x] Verify cross-instance message delivery and disconnect behavior.
 
 ## Phase 2.2 — Recovery and delivery semantics
 

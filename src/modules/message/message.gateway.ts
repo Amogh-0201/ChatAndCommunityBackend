@@ -1,4 +1,4 @@
-import { HttpException, Logger, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
+import { HttpException, Logger, OnModuleDestroy, UseGuards, UsePipes, ValidationPipe } from '@nestjs/common';
 import {ConnectedSocket, MessageBody, OnGatewayInit, SubscribeMessage, WebSocketGateway, WebSocketServer, WsException} from '@nestjs/websockets'
 import { Server, Socket } from 'socket.io';
 import { MessageService } from './message.service';
@@ -38,9 +38,14 @@ type AccessTokenPayload = {
             ),
     }),
 )
-export class MessageGateway implements OnGatewayInit {
+export class MessageGateway implements OnGatewayInit, OnModuleDestroy {
 
     private readonly logger = new Logger(MessageGateway.name);
+
+    private cleanupTimer?: ReturnType<typeof setTimeout>;
+
+    private readonly heartbeatIntervalMs = 20_000;
+    private readonly cleanupIntervalMs = 10_000;
 
     @WebSocketServer()
     server: Server;
@@ -64,6 +69,8 @@ export class MessageGateway implements OnGatewayInit {
         server.use((client, next) => {
             void this.authenticateSocket(client, next);
         });
+        
+        this.schedulePresenceCleanup();
     }
 
     private async authenticateSocket(client: Socket, next: (err?: Error) => void) {
@@ -120,6 +127,36 @@ export class MessageGateway implements OnGatewayInit {
         }
     }
 
+    private async cleanupExpiredPresence() {
+        try {
+            const offlineUserIds = await this.socketSessionRegistry.cleanupExpiredSockets();
+            
+            for(const userId of offlineUserIds) {
+                await this.broadcastPresence(userId, 'presence:offline');
+            }
+        } catch(error) {
+            this.logger.error('Failed to clean expired socket leases', error);
+        }
+    }
+
+    private schedulePresenceCleanup() {
+        this.cleanupTimer = setTimeout(async () => {
+            try {
+                await this.cleanupExpiredPresence();
+            } finally {
+                this.schedulePresenceCleanup();
+            }
+        }, this.cleanupIntervalMs);
+
+        this.cleanupTimer.unref?.();
+    }
+
+    onModuleDestroy() {
+        if(this.cleanupTimer) {
+            clearTimeout(this.cleanupTimer);
+        }
+    }
+
     async handleConnection(client: Socket) {
 
         const authUser = client.data.authUser as SocketAuthUser | undefined;
@@ -150,6 +187,33 @@ export class MessageGateway implements OnGatewayInit {
             }
         }
 
+        // The socket may have disconnected while the Redis registration operation was still running.
+        if(!client.connected) {
+            const becameOffline = await this.socketSessionRegistry.unregister(authUser.sessionId, authUser.id, client);
+            if(becameOffline) {
+                await this.broadcastPresence(authUser.id, 'presence:offline');
+            }
+            return;
+        }
+
+        const heartbeatTimer = setInterval(() => {
+            void this.socketSessionRegistry
+                .renewLease(client.id)
+                .then((renewed) => {
+                    if(!renewed) {
+                        // The lease expired or its Redis record was removed.
+                        client.disconnect(true);
+                    }
+                })
+                .catch((error) => {
+                    this.logger.error(`Failed to renew socket lease: ${client.id}`, error);
+                })
+        }, this.heartbeatIntervalMs);
+
+        heartbeatTimer.unref?.();
+
+        client.data.presenceHeartbeatTimer = heartbeatTimer;
+
         // Send the connecting socket the current presence of its peers.
         try {
             await this.sendPresenceSnapshot(client, authUser.id);
@@ -170,20 +234,29 @@ export class MessageGateway implements OnGatewayInit {
 
         const authUser = client.data.authUser as SocketAuthUser | undefined;
         const expiryTimer = client.data.authExpiryTimer as ReturnType<typeof setTimeout> | undefined;
+        const heartbeatTimer = client.data.presenceHeartbeatTimer as ReturnType<typeof setInterval> | undefined;
 
         if(expiryTimer) {
             clearTimeout(expiryTimer);
         }
 
+        if(heartbeatTimer) {
+            clearInterval(heartbeatTimer);
+        }
+
         if(!authUser) return;
         
-        const becameOffline = await this.socketSessionRegistry.unregister(authUser.sessionId, authUser.id, client);
-        if(becameOffline) {
-            try {
-                await this.broadcastPresence(authUser.id, 'presence:offline');
-            } catch (error) {
-                this.logger.error('Failed to broadcast offline presence', error);
+        try {
+            const becameOffline = await this.socketSessionRegistry.unregister(authUser.sessionId, authUser.id, client);
+            if(becameOffline) {
+                try {
+                    await this.broadcastPresence(authUser.id, 'presence:offline');
+                } catch (error) {
+                    this.logger.error('Failed to broadcast offline presence', error);
+                }
             }
+        } catch(error) {
+            this.logger.error('Failed to unregister disconnected socket', error);
         }
         
     }
