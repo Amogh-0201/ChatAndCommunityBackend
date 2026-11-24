@@ -7,6 +7,7 @@ import { ConfigModule } from '@nestjs/config';
 import { AuthModule } from './modules/auth/auth.module';
 import { ConversationModule } from './modules/conversation/conversation.module';
 import { RedisModule } from './redis/redis.module';
+import { HealthModule } from './health/health.module';
 
 @Module({
   imports: [
@@ -17,7 +18,8 @@ import { RedisModule } from './redis/redis.module';
     MessageModule,
     AuthModule,
     ConversationModule,
-    RedisModule
+    RedisModule,
+    HealthModule
   ],
   controllers: [AppController],
   providers: [AppService],
